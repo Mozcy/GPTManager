@@ -12,6 +12,11 @@ import (
 var assets embed.FS
 
 func main() {
+	if err := initAppLogger(); err != nil {
+		appLogger.Error("初始化日志失败", "error", err)
+	}
+	appLogger.Info("应用启动")
+
 	// Create an instance of the app structure
 	app := NewApp()
 
@@ -33,6 +38,6 @@ func main() {
 	})
 
 	if err != nil {
-		println("Error:", err.Error())
+		appLogger.Error("应用运行失败", "error", err)
 	}
 }

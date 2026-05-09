@@ -140,6 +140,7 @@ func startSystemTray(app *App) {
 	systemTrayMu.Lock()
 	if systemTray != nil {
 		systemTrayMu.Unlock()
+		appLogger.Info("系统托盘已运行，跳过启动")
 		return
 	}
 
@@ -147,6 +148,7 @@ func startSystemTray(app *App) {
 	systemTray = tray
 	systemTrayMu.Unlock()
 
+	appLogger.Info("启动系统托盘")
 	go tray.run()
 }
 
@@ -154,8 +156,11 @@ func startSystemTray(app *App) {
 func stopSystemTray() {
 	tray := currentSystemTray()
 	if tray != nil {
+		appLogger.Info("停止系统托盘")
 		tray.stop()
+		return
 	}
+	appLogger.Info("系统托盘未运行，跳过停止")
 }
 
 // currentSystemTray 返回当前正在运行的系统托盘实例。
@@ -182,6 +187,7 @@ func (t *windowsTray) run() {
 
 	hwnd, ok := t.createWindow()
 	if !ok {
+		appLogger.Error("创建系统托盘隐藏窗口失败")
 		return
 	}
 
@@ -191,13 +197,16 @@ func (t *windowsTray) run() {
 
 	t.hicon, t.ownsIcon = loadTrayIcon()
 	if t.hicon == 0 {
+		appLogger.Error("加载系统托盘图标失败")
 		return
 	}
 
 	if !t.addIcon() {
+		appLogger.Error("添加系统托盘图标失败")
 		t.cleanup()
 		return
 	}
+	appLogger.Info("系统托盘图标已添加")
 	defer t.cleanup()
 
 	var message msg
@@ -225,6 +234,7 @@ func (t *windowsTray) createWindow() (uintptr, bool) {
 
 	atom, _, err := procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
 	if atom == 0 && err != windows.ERROR_CLASS_ALREADY_EXISTS {
+		appLogger.Error("注册系统托盘窗口类失败", "error", err)
 		return 0, false
 	}
 
@@ -243,7 +253,12 @@ func (t *windowsTray) createWindow() (uintptr, bool) {
 		0,
 	)
 
-	return hwnd, hwnd != 0
+	if hwnd == 0 {
+		appLogger.Error("创建系统托盘隐藏窗口失败")
+		return 0, false
+	}
+	appLogger.Info("系统托盘隐藏窗口已创建")
+	return hwnd, true
 }
 
 // loadTrayIcon 优先从当前可执行文件提取图标，失败时使用系统默认图标。
@@ -252,11 +267,13 @@ func loadTrayIcon() (uintptr, bool) {
 		exePath := windows.StringToUTF16(exe)
 		icon, _, _ := procExtractIconW.Call(0, uintptr(unsafe.Pointer(&exePath[0])), 0)
 		if icon > 1 {
+			appLogger.Info("从可执行文件加载托盘图标", "path", exe)
 			return icon, true
 		}
 	}
 
 	icon, _, _ := procLoadIconW.Call(0, idiApplication)
+	appLogger.Info("使用系统默认托盘图标")
 	return icon, false
 }
 
@@ -273,6 +290,9 @@ func (t *windowsTray) addIcon() bool {
 
 	ret, _, _ := procShellNotifyIconW.Call(nimAdd, uintptr(unsafe.Pointer(&data)))
 	t.added = ret != 0
+	if !t.added {
+		appLogger.Error("调用 Shell_NotifyIcon 添加托盘图标失败")
+	}
 	return t.added
 }
 
@@ -286,6 +306,7 @@ func (t *windowsTray) stop() {
 		if hwnd != 0 {
 			procPostMessageW.Call(hwnd, wmClose, 0, 0)
 		}
+		appLogger.Info("系统托盘停止消息已发送")
 	})
 }
 
@@ -301,11 +322,13 @@ func (t *windowsTray) cleanup() {
 		data.UID = 1
 		procShellNotifyIconW.Call(nimDelete, uintptr(unsafe.Pointer(&data)))
 		t.added = false
+		appLogger.Info("系统托盘图标已删除")
 	}
 
 	if t.ownsIcon && t.hicon != 0 {
 		procDestroyIcon.Call(t.hicon)
 		t.hicon = 0
+		appLogger.Info("系统托盘图标资源已释放")
 	}
 }
 
@@ -338,8 +361,10 @@ func trayWindowProc(hwnd uintptr, message uint32, wparam uintptr, lparam uintptr
 func (t *windowsTray) handleTrayEvent(event uint32) {
 	switch event {
 	case wmRButtonUp:
+		appLogger.Info("打开系统托盘右键菜单")
 		t.showContextMenu()
 	case wmLButtonUp, wmLButtonDblClk:
+		appLogger.Info("点击系统托盘图标，显示窗口")
 		go t.app.ShowWindow()
 	}
 }
@@ -374,8 +399,10 @@ func (t *windowsTray) showContextMenu() {
 
 	switch cmd {
 	case menuShowID:
+		appLogger.Info("系统托盘菜单选择显示")
 		go t.app.ShowWindow()
 	case menuQuitID:
+		appLogger.Info("系统托盘菜单选择关闭")
 		go t.app.QuitApplication()
 	}
 }
