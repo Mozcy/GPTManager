@@ -23,7 +23,7 @@ func main() {
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:             "GPTProxy",
-		Width:             1024,
+		Width:             1222,
 		Height:            768,
 		HideWindowOnClose: true,
 		AssetServer: &assetserver.Options{

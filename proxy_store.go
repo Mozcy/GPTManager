@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -79,7 +80,7 @@ func (s *ProxyStore) Close() error {
 	return nil
 }
 
-// initSchema 初始化代理配置表和全局二次代理配置表。
+// initSchema 初始化代理、二次代理和账号表结构。
 func (s *ProxyStore) initSchema() error {
 	const schema = `
 CREATE TABLE IF NOT EXISTS proxies (
@@ -101,11 +102,49 @@ CREATE TABLE IF NOT EXISTS upstream_config (
 	port TEXT NOT NULL,
 	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS accounts (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	provider TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	account_id TEXT NOT NULL DEFAULT '',
+	email TEXT NOT NULL DEFAULT '',
+	name TEXT NOT NULL DEFAULT '',
+	picture TEXT NOT NULL DEFAULT '',
+	subscription TEXT NOT NULL DEFAULT '',
+	subscription_expires_at TEXT NOT NULL DEFAULT '',
+	access_token TEXT NOT NULL,
+	refresh_token TEXT NOT NULL DEFAULT '',
+	id_token TEXT NOT NULL DEFAULT '',
+	token_type TEXT NOT NULL DEFAULT '',
+	expires_at TEXT NOT NULL DEFAULT '',
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE(provider, subject)
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("初始化代理配置表失败: %w", err)
 	}
+	if err := s.migrateAccountColumns(); err != nil {
+		return err
+	}
 	appLogger.Info("SQLite 表结构检查完成")
+	return nil
+}
+
+// migrateAccountColumns 为旧版本账号表补充新增字段。
+func (s *ProxyStore) migrateAccountColumns() error {
+	migrations := []string{
+		"ALTER TABLE accounts ADD COLUMN account_id TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN subscription TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN subscription_expires_at TEXT NOT NULL DEFAULT ''",
+	}
+	for _, migration := range migrations {
+		if _, err := s.db.Exec(migration); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			return fmt.Errorf("迁移账号表结构失败: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -313,6 +352,113 @@ ON CONFLICT(id) DO UPDATE SET
 	}
 	appLogger.Info("二次代理配置已保存数据库", "type", config.Type, "address", config.IP+":"+config.Port)
 	return config, nil
+}
+
+// ListAccounts 返回已保存的账号信息，不包含 token 明文。
+func (s *ProxyStore) ListAccounts() ([]AccountInfo, error) {
+	rows, err := s.db.Query(`
+SELECT id, provider, subject, account_id, email, name, picture, subscription, subscription_expires_at, expires_at, updated_at
+FROM accounts
+ORDER BY updated_at DESC, id DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("查询账号失败: %w", err)
+	}
+	defer rows.Close()
+
+	var result []AccountInfo
+	for rows.Next() {
+		var item AccountInfo
+		if err := rows.Scan(&item.ID, &item.Provider, &item.Subject, &item.AccountID, &item.Email, &item.Name, &item.Picture, &item.Subscription, &item.SubscriptionExpiresAt, &item.ExpiresAt, &item.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("读取账号失败: %w", err)
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("读取账号失败: %w", err)
+	}
+
+	appLogger.Info("查询账号列表完成", "count", len(result))
+	return result, nil
+}
+
+// SaveAccount 保存或更新 OAuth 账号及 token。
+func (s *ProxyStore) SaveAccount(input accountRecord) (AccountInfo, error) {
+	if input.Provider == "" || input.Subject == "" {
+		return AccountInfo{}, errors.New("账号 provider 和 subject 不能为空")
+	}
+	if input.AccountID == "" {
+		return AccountInfo{}, errors.New("账号 account_id 不能为空")
+	}
+	if input.AccessToken == "" {
+		return AccountInfo{}, errors.New("账号 access_token 不能为空")
+	}
+
+	var item AccountInfo
+	err := s.db.QueryRow(`
+INSERT INTO accounts (
+	provider, subject, account_id, email, name, picture, subscription, subscription_expires_at,
+	access_token, refresh_token, id_token, token_type, expires_at, updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+ON CONFLICT(provider, subject) DO UPDATE SET
+	account_id = excluded.account_id,
+	email = excluded.email,
+	name = excluded.name,
+	picture = excluded.picture,
+	subscription = excluded.subscription,
+	subscription_expires_at = excluded.subscription_expires_at,
+	access_token = excluded.access_token,
+	refresh_token = excluded.refresh_token,
+	id_token = excluded.id_token,
+	token_type = excluded.token_type,
+	expires_at = excluded.expires_at,
+	updated_at = CURRENT_TIMESTAMP
+RETURNING id, provider, subject, account_id, email, name, picture, subscription, subscription_expires_at, expires_at, updated_at`,
+		input.Provider, input.Subject, input.AccountID, input.Email, input.Name, input.Picture, input.Subscription, input.SubscriptionExpiresAt,
+		input.AccessToken, input.RefreshToken, input.IDToken, input.TokenType, input.ExpiresAt).
+		Scan(&item.ID, &item.Provider, &item.Subject, &item.AccountID, &item.Email, &item.Name, &item.Picture, &item.Subscription, &item.SubscriptionExpiresAt, &item.ExpiresAt, &item.UpdatedAt)
+	if err != nil {
+		return AccountInfo{}, fmt.Errorf("保存账号失败: %w", err)
+	}
+	if item.ID <= 0 || item.Provider == "" || item.Subject == "" || item.AccountID == "" {
+		return AccountInfo{}, fmt.Errorf("账号保存结果无效: id=%d provider=%q subject=%q account_id=%q", item.ID, item.Provider, item.Subject, item.AccountID)
+	}
+	appLogger.Info("账号已保存数据库", "id", item.ID, "provider", item.Provider, "account_id", item.AccountID, "email", item.Email, "subject", item.Subject, "subscription", item.Subscription)
+	return item, nil
+}
+
+// GetAccountBySubject 根据 provider 和 subject 查询账号。
+func (s *ProxyStore) GetAccountBySubject(provider string, subject string) (AccountInfo, error) {
+	var item AccountInfo
+	err := s.db.QueryRow(`
+SELECT id, provider, subject, account_id, email, name, picture, subscription, subscription_expires_at, expires_at, updated_at
+FROM accounts
+WHERE provider = ? AND subject = ?`, provider, subject).
+		Scan(&item.ID, &item.Provider, &item.Subject, &item.AccountID, &item.Email, &item.Name, &item.Picture, &item.Subscription, &item.SubscriptionExpiresAt, &item.ExpiresAt, &item.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AccountInfo{}, errors.New("账号不存在")
+	}
+	if err != nil {
+		return AccountInfo{}, fmt.Errorf("查询账号失败: %w", err)
+	}
+	return item, nil
+}
+
+// DeleteAccount 删除已保存账号和 token。
+func (s *ProxyStore) DeleteAccount(id int64) error {
+	result, err := s.db.Exec("DELETE FROM accounts WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("删除账号失败: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("确认账号删除结果失败: %w", err)
+	}
+	if affected == 0 {
+		return errors.New("账号不存在")
+	}
+	appLogger.Info("账号已从数据库删除", "id", id)
+	return nil
 }
 
 // defaultUpstreamConfig 返回默认二次代理配置。

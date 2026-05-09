@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -15,6 +16,8 @@ type App struct {
 	proxyStore   *ProxyStore
 	proxyManager *ProxyManager
 	proxyInitErr error
+	authMu       sync.Mutex
+	authRunning  bool
 }
 
 // NewApp 创建一个新的应用实例。
@@ -185,6 +188,29 @@ func (a *App) CheckUpstreamStatus() (UpstreamStatus, error) {
 		"message", status.Message,
 	)
 	return status, nil
+}
+
+// ListAccounts 返回已保存的账号列表。
+func (a *App) ListAccounts() ([]AccountInfo, error) {
+	if err := a.ensureProxyService(); err != nil {
+		appLogger.Error("查询账号列表失败: 服务未初始化", "error", err)
+		return nil, err
+	}
+	return a.proxyStore.ListAccounts()
+}
+
+// DeleteAccount 删除已保存的账号。
+func (a *App) DeleteAccount(id int64) error {
+	if err := a.ensureProxyService(); err != nil {
+		appLogger.Error("删除账号失败: 服务未初始化", "error", err, "id", id)
+		return err
+	}
+	if err := a.proxyStore.DeleteAccount(id); err != nil {
+		appLogger.Error("删除账号失败", "error", err, "id", id)
+		return err
+	}
+	appLogger.Info("删除账号成功", "id", id)
+	return nil
 }
 
 // Greet 返回指定名称的问候语。
