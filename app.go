@@ -147,7 +147,7 @@ func (a *App) GetUpstreamConfig() (UpstreamConfig, error) {
 		appLogger.Error("获取二次代理配置失败: 服务未初始化", "error", err)
 		return UpstreamConfig{}, err
 	}
-	return a.proxyStore.GetUpstreamConfig()
+	return a.proxyManager.GetUpstreamConfig(), nil
 }
 
 // SaveUpstreamConfig 保存全局二次代理配置。
@@ -161,6 +161,7 @@ func (a *App) SaveUpstreamConfig(input UpstreamConfig) (UpstreamConfig, error) {
 		appLogger.Error("保存二次代理配置失败", "error", err, "type", input.Type, "ip", input.IP, "port", input.Port)
 		return UpstreamConfig{}, err
 	}
+	a.proxyManager.SetUpstreamConfig(config)
 	appLogger.Info("保存二次代理配置成功", "type", config.Type, "address", config.IP+":"+config.Port)
 	return config, nil
 }
@@ -171,11 +172,7 @@ func (a *App) CheckUpstreamStatus() (UpstreamStatus, error) {
 		appLogger.Error("检查二次代理失败: 服务未初始化", "error", err)
 		return UpstreamStatus{}, err
 	}
-	config, err := a.proxyStore.GetUpstreamConfig()
-	if err != nil {
-		appLogger.Error("检查二次代理失败: 读取配置失败", "error", err)
-		return UpstreamStatus{}, err
-	}
+	config := a.proxyManager.GetUpstreamConfig()
 	status := CheckUpstreamStatus(config)
 	level := slog.LevelInfo
 	if !status.Connected {

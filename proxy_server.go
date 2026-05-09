@@ -18,9 +18,11 @@ import (
 
 // ProxyManager 管理所有已启用的本地代理服务。
 type ProxyManager struct {
-	store   *ProxyStore
-	mu      sync.Mutex
-	running map[int64]*runningProxy
+	store          *ProxyStore
+	mu             sync.Mutex
+	running        map[int64]*runningProxy
+	upstreamMu     sync.RWMutex
+	upstreamConfig UpstreamConfig
 }
 
 type runningProxy struct {
@@ -31,10 +33,32 @@ type runningProxy struct {
 // NewProxyManager 创建代理服务管理器。
 func NewProxyManager(store *ProxyStore) *ProxyManager {
 	appLogger.Info("创建代理服务管理器")
-	return &ProxyManager{
-		store:   store,
-		running: make(map[int64]*runningProxy),
+	upstreamConfig, err := store.GetUpstreamConfig()
+	if err != nil {
+		appLogger.Error("加载二次代理缓存失败，使用默认值", "error", err)
+		upstreamConfig = defaultUpstreamConfig()
 	}
+	appLogger.Info("二次代理配置已加载到内存", "type", upstreamConfig.Type, "address", upstreamConfig.IP+":"+upstreamConfig.Port)
+	return &ProxyManager{
+		store:          store,
+		running:        make(map[int64]*runningProxy),
+		upstreamConfig: upstreamConfig,
+	}
+}
+
+// GetUpstreamConfig 返回当前内存中的二次代理配置快照。
+func (m *ProxyManager) GetUpstreamConfig() UpstreamConfig {
+	m.upstreamMu.RLock()
+	defer m.upstreamMu.RUnlock()
+	return m.upstreamConfig
+}
+
+// SetUpstreamConfig 更新内存中的二次代理配置。
+func (m *ProxyManager) SetUpstreamConfig(config UpstreamConfig) {
+	m.upstreamMu.Lock()
+	m.upstreamConfig = config
+	m.upstreamMu.Unlock()
+	appLogger.Info("二次代理内存缓存已更新", "type", config.Type, "address", config.IP+":"+config.Port)
 }
 
 // StartEnabledProxies 启动数据库中已启用的代理。
@@ -92,7 +116,7 @@ func (m *ProxyManager) StartProxy(item ProxyConfig) error {
 		return fmt.Errorf("启动本地代理 %s 失败: %w", listenAddr, err)
 	}
 
-	handler := newForwardProxyHandler(m.store)
+	handler := newForwardProxyHandler(m)
 
 	server := &http.Server{
 		Handler:           handler,
@@ -179,12 +203,12 @@ func (m *ProxyManager) SetProxyEnabled(id int64, enabled bool) (ProxyConfig, err
 }
 
 type forwardProxyHandler struct {
-	store *ProxyStore
+	manager *ProxyManager
 }
 
 // newForwardProxyHandler 创建转发到二次代理的 HTTP 代理处理器。
-func newForwardProxyHandler(store *ProxyStore) *forwardProxyHandler {
-	return &forwardProxyHandler{store: store}
+func newForwardProxyHandler(manager *ProxyManager) *forwardProxyHandler {
+	return &forwardProxyHandler{manager: manager}
 }
 
 // newUpstreamTransport 根据全局二次代理配置创建 HTTP 转发器。
@@ -196,7 +220,6 @@ func newUpstreamTransport(config UpstreamConfig) (*http.Transport, error) {
 	}
 
 	upstreamAddr := net.JoinHostPort(config.IP, config.Port)
-	appLogger.Info("创建二次代理转发器", "type", config.Type, "address", upstreamAddr)
 	switch config.Type {
 	case "http":
 		upstreamURL := &url.URL{Scheme: "http", Host: upstreamAddr}
@@ -242,12 +265,7 @@ func (h *forwardProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 // handleHTTP 处理普通 HTTP 请求并通过二次代理转发。
 func (h *forwardProxyHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
-	config, err := h.store.GetUpstreamConfig()
-	if err != nil {
-		appLogger.Error("HTTP 转发失败: 读取二次代理配置失败", "error", err, "method", r.Method, "host", r.Host, "url", r.URL.String())
-		http.Error(w, "读取二次代理配置失败: "+err.Error(), http.StatusBadGateway)
-		return
-	}
+	config := h.manager.GetUpstreamConfig()
 	transport, err := newUpstreamTransport(config)
 	if err != nil {
 		appLogger.Error("HTTP 转发失败: 创建二次代理转发器失败", "error", err, "method", r.Method, "host", r.Host, "url", r.URL.String())
@@ -310,13 +328,8 @@ func (h *forwardProxyHandler) handleConnect(w http.ResponseWriter, r *http.Reque
 
 // dialConnectTarget 通过二次代理连接 CONNECT 请求目标。
 func (h *forwardProxyHandler) dialConnectTarget(target string) (net.Conn, error) {
-	config, err := h.store.GetUpstreamConfig()
-	if err != nil {
-		appLogger.Error("CONNECT 读取二次代理配置失败", "error", err, "target", target)
-		return nil, err
-	}
+	config := h.manager.GetUpstreamConfig()
 
-	appLogger.Info("通过二次代理建立 CONNECT", "type", config.Type, "upstream", config.IP+":"+config.Port, "target", target)
 	switch config.Type {
 	case "http":
 		return dialHTTPProxyTunnel(net.JoinHostPort(config.IP, config.Port), target)
