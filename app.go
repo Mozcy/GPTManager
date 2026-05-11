@@ -207,6 +207,18 @@ func (a *App) ListAccounts() ([]AccountInfo, error) {
 	return a.proxyStore.ListAccounts()
 }
 
+// RefreshAccountUsage 手动刷新所有账号额度，并通过事件推送单账号结果。
+func (a *App) RefreshAccountUsage() error {
+	if err := a.ensureProxyService(); err != nil {
+		appLogger.Error("手动刷新账号额度失败: 服务未初始化", "error", err)
+		return err
+	}
+	appLogger.Info("手动刷新账号额度开始")
+	a.refreshAllAccountUsage(context.Background())
+	appLogger.Info("手动刷新账号额度完成")
+	return nil
+}
+
 // DeleteAccount 删除已保存的账号。
 func (a *App) DeleteAccount(id int64) error {
 	if err := a.ensureProxyService(); err != nil {
