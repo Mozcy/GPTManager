@@ -417,6 +417,29 @@ ORDER BY updated_at DESC, id DESC`)
 	return result, nil
 }
 
+// GetAccountRecord 根据账号 ID 查询包含 token 的账号记录，仅供后端内部使用。
+func (s *ProxyStore) GetAccountRecord(id int64) (accountRecord, error) {
+	if id <= 0 {
+		return accountRecord{}, errors.New("账号 ID 无效")
+	}
+
+	row := s.db.QueryRow(`
+SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, expires_at, updated_at,
+	access_token, refresh_token, id_token, token_type
+FROM accounts
+WHERE id = ?`, id)
+	info, record, err := scanAccountRecord(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return accountRecord{}, errors.New("账号不存在")
+	}
+	if err != nil {
+		return accountRecord{}, fmt.Errorf("查询账号 token 失败: %w", err)
+	}
+	record.AccountInfo = info
+	appLogger.Info("查询账号 token 完成", "id", record.ID, "account_id", record.AccountID, "email", record.Email)
+	return record, nil
+}
+
 type sqlScanner interface {
 	Scan(dest ...any) error
 }

@@ -37,7 +37,7 @@ func (a *App) startup(ctx context.Context) {
 		a.proxyInitErr = err
 		appLogger.Error("初始化代理服务失败", "error", err)
 	} else {
-		a.startAccountUsageRefresher()
+		//a.startAccountUsageRefresher()
 	}
 	startSystemTray(a)
 	appLogger.Info("Wails 启动回调完成")
@@ -219,6 +219,28 @@ func (a *App) RefreshAccountUsage() error {
 	return nil
 }
 
+// ActivateAccount 将指定账号设置为代理流量使用的全局激活账号。
+func (a *App) ActivateAccount(id int64) (AccountInfo, error) {
+	if err := a.ensureProxyService(); err != nil {
+		appLogger.Error("激活账号失败: 服务未初始化", "error", err, "id", id)
+		return AccountInfo{}, err
+	}
+	record, err := a.proxyStore.GetAccountRecord(id)
+	if err != nil {
+		appLogger.Error("激活账号失败: 查询账号失败", "error", err, "id", id)
+		return AccountInfo{}, err
+	}
+	if record.AccessToken == "" {
+		err := errors.New("账号 access_token 为空")
+		appLogger.Error("激活账号失败", "error", err, "id", id, "account_id", record.AccountID)
+		return AccountInfo{}, err
+	}
+
+	a.proxyManager.SetActiveAccount(record)
+	appLogger.Info("激活账号成功", "id", record.ID, "account_id", record.AccountID, "email", record.Email)
+	return record.AccountInfo, nil
+}
+
 // DeleteAccount 删除已保存的账号。
 func (a *App) DeleteAccount(id int64) error {
 	if err := a.ensureProxyService(); err != nil {
@@ -229,6 +251,7 @@ func (a *App) DeleteAccount(id int64) error {
 		appLogger.Error("删除账号失败", "error", err, "id", id)
 		return err
 	}
+	a.proxyManager.ClearActiveAccount(id)
 	appLogger.Info("删除账号成功", "id", id)
 	return nil
 }

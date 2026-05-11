@@ -16,6 +16,15 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+const (
+	chatGPTAPIProxyPathPrefix = "/v1"
+	chatGPTAPIHost            = "api.chatgpt.com"
+	chatGPTAPIPathPrefix      = "/v1"
+	chatGPTResponsesPath      = "/v1/responses"
+	chatGPTCodexHost          = "chatgpt.com"
+	chatGPTCodexResponsesPath = "/backend-api/codex/responses"
+)
+
 // ProxyManager 管理所有已启用的本地代理服务。
 type ProxyManager struct {
 	store          *ProxyStore
@@ -23,11 +32,20 @@ type ProxyManager struct {
 	running        map[int64]*runningProxy
 	upstreamMu     sync.RWMutex
 	upstreamConfig UpstreamConfig
+	activeMu       sync.RWMutex
+	activeAccount  *activeProxyAccount
 }
 
 type runningProxy struct {
 	server   *http.Server
 	listener net.Listener
+}
+
+type activeProxyAccount struct {
+	ID          int64
+	AccountID   string
+	Email       string
+	AccessToken string
 }
 
 // NewProxyManager 创建代理服务管理器。
@@ -59,6 +77,40 @@ func (m *ProxyManager) SetUpstreamConfig(config UpstreamConfig) {
 	m.upstreamConfig = config
 	m.upstreamMu.Unlock()
 	appLogger.Info("二次代理内存缓存已更新", "type", config.Type, "address", config.IP+":"+config.Port)
+}
+
+// SetActiveAccount 设置代理请求使用的激活账号。
+func (m *ProxyManager) SetActiveAccount(record accountRecord) {
+	m.activeMu.Lock()
+	m.activeAccount = &activeProxyAccount{
+		ID:          record.ID,
+		AccountID:   record.AccountID,
+		Email:       record.Email,
+		AccessToken: record.AccessToken,
+	}
+	m.activeMu.Unlock()
+	appLogger.Info("代理激活账号已更新", "id", record.ID, "account_id", record.AccountID, "email", record.Email)
+}
+
+// ClearActiveAccount 清除指定账号的激活状态，避免删除后继续使用旧 token。
+func (m *ProxyManager) ClearActiveAccount(id int64) {
+	m.activeMu.Lock()
+	if m.activeAccount != nil && m.activeAccount.ID == id {
+		m.activeAccount = nil
+		appLogger.Info("代理激活账号已清除", "id", id)
+	}
+	m.activeMu.Unlock()
+}
+
+// GetActiveAccount 返回当前代理激活账号快照。
+func (m *ProxyManager) GetActiveAccount() *activeProxyAccount {
+	m.activeMu.RLock()
+	defer m.activeMu.RUnlock()
+	if m.activeAccount == nil {
+		return nil
+	}
+	account := *m.activeAccount
+	return &account
 }
 
 // StartEnabledProxies 启动数据库中已启用的代理。
@@ -283,6 +335,11 @@ func (h *forwardProxyHandler) handleHTTP(w http.ResponseWriter, r *http.Request)
 	if outReq.URL.Host == "" {
 		outReq.URL.Host = r.Host
 	}
+	if err := h.prepareChatGPTAPIProxyRequest(outReq); err != nil {
+		appLogger.Warn("ChatGPT API 代理请求准备失败", "error", err, "method", r.Method, "path", r.URL.Path)
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
 
 	resp, err := transport.RoundTrip(outReq)
 	if err != nil {
@@ -296,6 +353,55 @@ func (h *forwardProxyHandler) handleHTTP(w http.ResponseWriter, r *http.Request)
 	copyHeader(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+// prepareChatGPTAPIProxyRequest 处理 /v1 路由，改写目标地址并替换为当前激活账号 token。
+func (h *forwardProxyHandler) prepareChatGPTAPIProxyRequest(req *http.Request) error {
+	if !isChatGPTAPIProxyPath(req.URL.Path) {
+		return nil
+	}
+	account := h.manager.GetActiveAccount()
+	if account == nil || account.AccessToken == "" {
+		return errors.New("请先激活账号")
+	}
+
+	rewriteChatGPTAPIProxyURL(req)
+	req.Header.Set("Authorization", "Bearer "+account.AccessToken)
+	if account.AccountID != "" {
+		req.Header.Set("ChatGPT-Account-Id", account.AccountID)
+	}
+	appLogger.Info("已替换 ChatGPT API 代理请求激活账号", "target", req.URL.String(), "account_id", account.AccountID, "email", account.Email)
+	return nil
+}
+
+// isChatGPTAPIProxyPath 判断请求是否命中本地 ChatGPT API 前缀。
+func isChatGPTAPIProxyPath(requestPath string) bool {
+	return requestPath == chatGPTAPIProxyPathPrefix || strings.HasPrefix(requestPath, chatGPTAPIProxyPathPrefix+"/")
+}
+
+// rewriteChatGPTAPIProxyURL 将本地 /v1 路由映射到真实 ChatGPT API。
+func rewriteChatGPTAPIProxyURL(req *http.Request) {
+	if isChatGPTResponsesPath(req.URL.Path) {
+		suffix := strings.TrimPrefix(req.URL.Path, chatGPTResponsesPath)
+		req.URL.Scheme = "https"
+		req.URL.Host = chatGPTCodexHost
+		req.URL.Path = chatGPTCodexResponsesPath + suffix
+		req.URL.RawPath = ""
+		req.Host = chatGPTCodexHost
+		return
+	}
+
+	suffix := strings.TrimPrefix(req.URL.Path, chatGPTAPIProxyPathPrefix)
+	req.URL.Scheme = "https"
+	req.URL.Host = chatGPTAPIHost
+	req.URL.Path = chatGPTAPIPathPrefix + suffix
+	req.URL.RawPath = ""
+	req.Host = chatGPTAPIHost
+}
+
+// isChatGPTResponsesPath 判断请求是否是 Codex 使用的 Responses 路由。
+func isChatGPTResponsesPath(requestPath string) bool {
+	return requestPath == chatGPTResponsesPath || strings.HasPrefix(requestPath, chatGPTResponsesPath+"/")
 }
 
 // handleConnect 处理 HTTPS CONNECT 隧道并通过二次代理建立出口连接。
