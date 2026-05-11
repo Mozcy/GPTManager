@@ -18,6 +18,10 @@ type App struct {
 	proxyInitErr error
 	authMu       sync.Mutex
 	authRunning  bool
+	usageCancel  context.CancelFunc
+	usageWG      sync.WaitGroup
+	usageMu      sync.Mutex
+	usageRunning bool
 }
 
 // NewApp 创建一个新的应用实例。
@@ -32,6 +36,8 @@ func (a *App) startup(ctx context.Context) {
 	if err := a.initProxyService(); err != nil {
 		a.proxyInitErr = err
 		appLogger.Error("初始化代理服务失败", "error", err)
+	} else {
+		a.startAccountUsageRefresher()
 	}
 	startSystemTray(a)
 	appLogger.Info("Wails 启动回调完成")
@@ -40,6 +46,7 @@ func (a *App) startup(ctx context.Context) {
 // shutdown 在应用退出前调用，用于清理系统托盘图标。
 func (a *App) shutdown(ctx context.Context) {
 	appLogger.Info("应用关闭清理开始")
+	a.stopAccountUsageRefresher()
 	if a.proxyManager != nil {
 		a.proxyManager.Close()
 	}
@@ -66,6 +73,7 @@ func (a *App) ShowWindow() {
 // QuitApplication 清理系统托盘并真正退出应用。
 func (a *App) QuitApplication() {
 	appLogger.Info("用户请求退出应用")
+	a.stopAccountUsageRefresher()
 	if a.proxyManager != nil {
 		a.proxyManager.Close()
 	}

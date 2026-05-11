@@ -29,17 +29,27 @@ const (
 
 // AccountInfo 表示前端展示用的账号信息。
 type AccountInfo struct {
-	ID                    int64  `json:"id"`
-	Provider              string `json:"provider"`
-	Subject               string `json:"subject"`
-	AccountID             string `json:"accountId"`
-	Email                 string `json:"email"`
-	Name                  string `json:"name"`
-	Picture               string `json:"picture"`
-	Subscription          string `json:"subscription"`
-	SubscriptionExpiresAt string `json:"subscriptionExpiresAt"`
-	ExpiresAt             string `json:"expiresAt"`
-	UpdatedAt             string `json:"updatedAt"`
+	ID                    int64           `json:"id"`
+	Provider              string          `json:"provider"`
+	Subject               string          `json:"subject"`
+	UserID                string          `json:"userId"`
+	AccountID             string          `json:"accountId"`
+	Email                 string          `json:"email"`
+	Name                  string          `json:"name"`
+	Subscription          string          `json:"subscription"`
+	SubscriptionExpiresAt string          `json:"subscriptionExpiresAt"`
+	PrimaryWindow         UsageWindowInfo `json:"primaryWindow"`
+	SecondaryWindow       UsageWindowInfo `json:"secondaryWindow"`
+	ExpiresAt             string          `json:"expiresAt"`
+	UpdatedAt             string          `json:"updatedAt"`
+}
+
+// UsageWindowInfo 表示账号额度窗口的使用情况。
+type UsageWindowInfo struct {
+	UsedPercent        int   `json:"usedPercent"`
+	LimitWindowSeconds int64 `json:"limitWindowSeconds"`
+	ResetAfterSeconds  int64 `json:"resetAfterSeconds"`
+	ResetAt            int64 `json:"resetAt"`
 }
 
 type accountRecord struct {
@@ -63,7 +73,6 @@ type idTokenClaims struct {
 	Subject       string             `json:"sub"`
 	Email         string             `json:"email"`
 	Name          string             `json:"name"`
-	Picture       string             `json:"picture"`
 	OpenAIAuth    openAIAuthClaims   `json:"https://api.openai.com/auth"`
 	OpenAIProfile openAIProfileClaim `json:"https://api.openai.com/profile"`
 }
@@ -162,13 +171,13 @@ func (a *App) waitOpenAIAuthCallback(server *http.Server, callbackCh <-chan oaut
 		if err != nil {
 			break
 		}
-		appLogger.Info("OpenAI 账号信息解析完成", "provider", record.Provider, "subject", record.Subject, "account_id", record.AccountID, "email", record.Email, "subscription", record.Subscription)
+		appLogger.Info("OpenAI 账号信息解析完成", "provider", record.Provider, "subject", record.Subject, "user_id", record.UserID, "account_id", record.AccountID, "email", record.Email, "subscription", record.Subscription)
 		account, err = a.proxyStore.SaveAccount(record)
 		if err != nil {
 			break
 		}
-		if account.ID <= 0 || account.Provider == "" || account.Subject == "" || account.AccountID == "" {
-			err = fmt.Errorf("账号保存结果无效: id=%d provider=%q subject=%q account_id=%q", account.ID, account.Provider, account.Subject, account.AccountID)
+		if account.ID <= 0 || account.Provider == "" || account.Subject == "" || account.UserID == "" || account.AccountID == "" {
+			err = fmt.Errorf("账号保存结果无效: id=%d provider=%q subject=%q user_id=%q account_id=%q", account.ID, account.Provider, account.Subject, account.UserID, account.AccountID)
 			break
 		}
 	case <-time.After(5 * time.Minute):
@@ -180,8 +189,9 @@ func (a *App) waitOpenAIAuthCallback(server *http.Server, callbackCh <-chan oaut
 		wailsRuntime.EventsEmit(a.ctx, accountAuthErrorEvent, err.Error())
 		return
 	}
-	appLogger.Info("OpenAI 账号登录成功", "id", account.ID, "account_id", account.AccountID, "email", account.Email, "subject", account.Subject, "subscription", account.Subscription)
+	appLogger.Info("OpenAI 账号登录成功", "id", account.ID, "user_id", account.UserID, "account_id", account.AccountID, "email", account.Email, "subject", account.Subject, "subscription", account.Subscription)
 	wailsRuntime.EventsEmit(a.ctx, accountAuthSuccessEvent, account)
+	go a.refreshAllAccountUsage(context.Background())
 }
 
 // finishOpenAIAuth 标记当前 OpenAI OAuth 流程结束。
@@ -344,6 +354,7 @@ func buildAccountFromToken(token oauthTokenResponse) (accountRecord, error) {
 		email = accessClaims.OpenAIProfile.Email
 	}
 	accountID := firstNonEmpty(token.AccountID, claims.OpenAIAuth.ChatGPTAccountID, accessClaims.OpenAIAuth.ChatGPTAccountID)
+	userID := firstNonEmpty(claims.OpenAIAuth.ChatGPTUserID, claims.OpenAIAuth.UserID, accessClaims.OpenAIAuth.ChatGPTUserID, accessClaims.OpenAIAuth.UserID)
 	subscription := strings.ToLower(firstNonEmpty(claims.OpenAIAuth.ChatGPTPlanType, accessClaims.OpenAIAuth.ChatGPTPlanType))
 	subscriptionExpiresAt := firstNonEmpty(claims.OpenAIAuth.ChatGPTSubscriptionActiveUntil, accessClaims.OpenAIAuth.ChatGPTSubscriptionActiveUntil)
 
@@ -351,10 +362,10 @@ func buildAccountFromToken(token oauthTokenResponse) (accountRecord, error) {
 		AccountInfo: AccountInfo{
 			Provider:              "openai",
 			Subject:               claims.Subject,
+			UserID:                userID,
 			AccountID:             accountID,
 			Email:                 email,
 			Name:                  claims.Name,
-			Picture:               claims.Picture,
 			Subscription:          subscription,
 			SubscriptionExpiresAt: subscriptionExpiresAt,
 			ExpiresAt:             expiresAt,

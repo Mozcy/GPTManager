@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -107,12 +108,14 @@ CREATE TABLE IF NOT EXISTS accounts (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	provider TEXT NOT NULL,
 	subject TEXT NOT NULL,
+	user_id TEXT NOT NULL DEFAULT '',
 	account_id TEXT NOT NULL DEFAULT '',
 	email TEXT NOT NULL DEFAULT '',
 	name TEXT NOT NULL DEFAULT '',
-	picture TEXT NOT NULL DEFAULT '',
 	subscription TEXT NOT NULL DEFAULT '',
 	subscription_expires_at TEXT NOT NULL DEFAULT '',
+	primary_window TEXT NOT NULL DEFAULT '',
+	secondary_window TEXT NOT NULL DEFAULT '',
 	access_token TEXT NOT NULL,
 	refresh_token TEXT NOT NULL DEFAULT '',
 	id_token TEXT NOT NULL DEFAULT '',
@@ -137,8 +140,11 @@ CREATE TABLE IF NOT EXISTS accounts (
 func (s *ProxyStore) migrateAccountColumns() error {
 	migrations := []string{
 		"ALTER TABLE accounts ADD COLUMN account_id TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN user_id TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE accounts ADD COLUMN subscription TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE accounts ADD COLUMN subscription_expires_at TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN primary_window TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN secondary_window TEXT NOT NULL DEFAULT ''",
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
@@ -357,7 +363,7 @@ ON CONFLICT(id) DO UPDATE SET
 // ListAccounts 返回已保存的账号信息，不包含 token 明文。
 func (s *ProxyStore) ListAccounts() ([]AccountInfo, error) {
 	rows, err := s.db.Query(`
-SELECT id, provider, subject, account_id, email, name, picture, subscription, subscription_expires_at, expires_at, updated_at
+SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, expires_at, updated_at
 FROM accounts
 ORDER BY updated_at DESC, id DESC`)
 	if err != nil {
@@ -367,8 +373,8 @@ ORDER BY updated_at DESC, id DESC`)
 
 	var result []AccountInfo
 	for rows.Next() {
-		var item AccountInfo
-		if err := rows.Scan(&item.ID, &item.Provider, &item.Subject, &item.AccountID, &item.Email, &item.Name, &item.Picture, &item.Subscription, &item.SubscriptionExpiresAt, &item.ExpiresAt, &item.UpdatedAt); err != nil {
+		item, err := scanAccountInfo(rows)
+		if err != nil {
 			return nil, fmt.Errorf("读取账号失败: %w", err)
 		}
 		result = append(result, item)
@@ -381,10 +387,153 @@ ORDER BY updated_at DESC, id DESC`)
 	return result, nil
 }
 
+// ListAccountRecords 返回包含 token 的账号记录，仅供后端刷新额度使用。
+func (s *ProxyStore) ListAccountRecords() ([]accountRecord, error) {
+	rows, err := s.db.Query(`
+SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, expires_at, updated_at,
+	access_token, refresh_token, id_token, token_type
+FROM accounts
+WHERE access_token <> ''
+ORDER BY updated_at DESC, id DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("查询账号 token 失败: %w", err)
+	}
+	defer rows.Close()
+
+	var result []accountRecord
+	for rows.Next() {
+		info, record, err := scanAccountRecord(rows)
+		if err != nil {
+			return nil, fmt.Errorf("读取账号 token 失败: %w", err)
+		}
+		record.AccountInfo = info
+		result = append(result, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("读取账号 token 失败: %w", err)
+	}
+
+	appLogger.Info("查询账号 token 完成", "count", len(result))
+	return result, nil
+}
+
+type sqlScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanAccountInfo 扫描账号公开信息并解析额度窗口 JSON。
+func scanAccountInfo(scanner sqlScanner) (AccountInfo, error) {
+	var item AccountInfo
+	var primaryWindow string
+	var secondaryWindow string
+	err := scanner.Scan(
+		&item.ID,
+		&item.Provider,
+		&item.Subject,
+		&item.UserID,
+		&item.AccountID,
+		&item.Email,
+		&item.Name,
+		&item.Subscription,
+		&item.SubscriptionExpiresAt,
+		&primaryWindow,
+		&secondaryWindow,
+		&item.ExpiresAt,
+		&item.UpdatedAt,
+	)
+	if err != nil {
+		return AccountInfo{}, err
+	}
+	item.PrimaryWindow = decodeUsageWindow(primaryWindow)
+	item.SecondaryWindow = decodeUsageWindow(secondaryWindow)
+	return item, nil
+}
+
+// scanAccountRecord 扫描账号公开信息和 token 明文，仅供后端内部使用。
+func scanAccountRecord(scanner sqlScanner) (AccountInfo, accountRecord, error) {
+	var item AccountInfo
+	var record accountRecord
+	var primaryWindow string
+	var secondaryWindow string
+	err := scanner.Scan(
+		&item.ID,
+		&item.Provider,
+		&item.Subject,
+		&item.UserID,
+		&item.AccountID,
+		&item.Email,
+		&item.Name,
+		&item.Subscription,
+		&item.SubscriptionExpiresAt,
+		&primaryWindow,
+		&secondaryWindow,
+		&item.ExpiresAt,
+		&item.UpdatedAt,
+		&record.AccessToken,
+		&record.RefreshToken,
+		&record.IDToken,
+		&record.TokenType,
+	)
+	if err != nil {
+		return AccountInfo{}, accountRecord{}, err
+	}
+	item.PrimaryWindow = decodeUsageWindow(primaryWindow)
+	item.SecondaryWindow = decodeUsageWindow(secondaryWindow)
+	return item, record, nil
+}
+
+// encodeUsageWindow 将额度窗口序列化为数据库 JSON。
+func encodeUsageWindow(window UsageWindowInfo) (string, error) {
+	data, err := json.Marshal(usageWindowResponse{
+		UsedPercent:        window.UsedPercent,
+		LimitWindowSeconds: window.LimitWindowSeconds,
+		ResetAfterSeconds:  window.ResetAfterSeconds,
+		ResetAt:            window.ResetAt,
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// decodeUsageWindow 从数据库 JSON 解析额度窗口，空值返回零值。
+func decodeUsageWindow(value string) UsageWindowInfo {
+	if strings.TrimSpace(value) == "" {
+		return UsageWindowInfo{}
+	}
+	var response usageWindowResponse
+	if err := json.Unmarshal([]byte(value), &response); err != nil {
+		appLogger.Warn("解析账号额度窗口失败", "error", err)
+		return UsageWindowInfo{}
+	}
+	window := response.toUsageWindowInfo()
+	if !isZeroUsageWindow(window) || strings.Contains(value, "used_percent") {
+		return window
+	}
+
+	var legacy UsageWindowInfo
+	if err := json.Unmarshal([]byte(value), &legacy); err != nil {
+		appLogger.Warn("解析旧版账号额度窗口失败", "error", err)
+		return UsageWindowInfo{}
+	}
+	return legacy
+}
+
+// isZeroUsageWindow 判断额度窗口是否为零值。
+func isZeroUsageWindow(window UsageWindowInfo) bool {
+	return window.UsedPercent == 0 &&
+		window.LimitWindowSeconds == 0 &&
+		window.ResetAfterSeconds == 0 &&
+		window.ResetAt == 0
+}
+
 // SaveAccount 保存或更新 OAuth 账号及 token。
 func (s *ProxyStore) SaveAccount(input accountRecord) (AccountInfo, error) {
 	if input.Provider == "" || input.Subject == "" {
 		return AccountInfo{}, errors.New("账号 provider 和 subject 不能为空")
+	}
+	if input.UserID == "" {
+		return AccountInfo{}, errors.New("账号 user_id 不能为空")
 	}
 	if input.AccountID == "" {
 		return AccountInfo{}, errors.New("账号 account_id 不能为空")
@@ -393,18 +542,17 @@ func (s *ProxyStore) SaveAccount(input accountRecord) (AccountInfo, error) {
 		return AccountInfo{}, errors.New("账号 access_token 不能为空")
 	}
 
-	var item AccountInfo
-	err := s.db.QueryRow(`
+	row := s.db.QueryRow(`
 INSERT INTO accounts (
-	provider, subject, account_id, email, name, picture, subscription, subscription_expires_at,
+	provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at,
 	access_token, refresh_token, id_token, token_type, expires_at, updated_at
 )
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 ON CONFLICT(provider, subject) DO UPDATE SET
+	user_id = excluded.user_id,
 	account_id = excluded.account_id,
 	email = excluded.email,
 	name = excluded.name,
-	picture = excluded.picture,
 	subscription = excluded.subscription,
 	subscription_expires_at = excluded.subscription_expires_at,
 	access_token = excluded.access_token,
@@ -413,34 +561,82 @@ ON CONFLICT(provider, subject) DO UPDATE SET
 	token_type = excluded.token_type,
 	expires_at = excluded.expires_at,
 	updated_at = CURRENT_TIMESTAMP
-RETURNING id, provider, subject, account_id, email, name, picture, subscription, subscription_expires_at, expires_at, updated_at`,
-		input.Provider, input.Subject, input.AccountID, input.Email, input.Name, input.Picture, input.Subscription, input.SubscriptionExpiresAt,
-		input.AccessToken, input.RefreshToken, input.IDToken, input.TokenType, input.ExpiresAt).
-		Scan(&item.ID, &item.Provider, &item.Subject, &item.AccountID, &item.Email, &item.Name, &item.Picture, &item.Subscription, &item.SubscriptionExpiresAt, &item.ExpiresAt, &item.UpdatedAt)
+RETURNING id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, expires_at, updated_at`,
+		input.Provider, input.Subject, input.UserID, input.AccountID, input.Email, input.Name, input.Subscription, input.SubscriptionExpiresAt,
+		input.AccessToken, input.RefreshToken, input.IDToken, input.TokenType, input.ExpiresAt)
+	item, err := scanAccountInfo(row)
 	if err != nil {
 		return AccountInfo{}, fmt.Errorf("保存账号失败: %w", err)
 	}
-	if item.ID <= 0 || item.Provider == "" || item.Subject == "" || item.AccountID == "" {
-		return AccountInfo{}, fmt.Errorf("账号保存结果无效: id=%d provider=%q subject=%q account_id=%q", item.ID, item.Provider, item.Subject, item.AccountID)
+	if item.ID <= 0 || item.Provider == "" || item.Subject == "" || item.UserID == "" || item.AccountID == "" {
+		return AccountInfo{}, fmt.Errorf("账号保存结果无效: id=%d provider=%q subject=%q user_id=%q account_id=%q", item.ID, item.Provider, item.Subject, item.UserID, item.AccountID)
 	}
-	appLogger.Info("账号已保存数据库", "id", item.ID, "provider", item.Provider, "account_id", item.AccountID, "email", item.Email, "subject", item.Subject, "subscription", item.Subscription)
+	appLogger.Info("账号已保存数据库", "id", item.ID, "provider", item.Provider, "user_id", item.UserID, "account_id", item.AccountID, "email", item.Email, "subject", item.Subject, "subscription", item.Subscription)
 	return item, nil
 }
 
 // GetAccountBySubject 根据 provider 和 subject 查询账号。
 func (s *ProxyStore) GetAccountBySubject(provider string, subject string) (AccountInfo, error) {
-	var item AccountInfo
-	err := s.db.QueryRow(`
-SELECT id, provider, subject, account_id, email, name, picture, subscription, subscription_expires_at, expires_at, updated_at
+	row := s.db.QueryRow(`
+SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, expires_at, updated_at
 FROM accounts
-WHERE provider = ? AND subject = ?`, provider, subject).
-		Scan(&item.ID, &item.Provider, &item.Subject, &item.AccountID, &item.Email, &item.Name, &item.Picture, &item.Subscription, &item.SubscriptionExpiresAt, &item.ExpiresAt, &item.UpdatedAt)
+WHERE provider = ? AND subject = ?`, provider, subject)
+	item, err := scanAccountInfo(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AccountInfo{}, errors.New("账号不存在")
 	}
 	if err != nil {
 		return AccountInfo{}, fmt.Errorf("查询账号失败: %w", err)
 	}
+	return item, nil
+}
+
+// UpdateAccountUsage 更新账号额度窗口并返回最新公开账号信息。
+func (s *ProxyStore) UpdateAccountUsage(accountID string, userID string, email string, subscription string, primaryWindow UsageWindowInfo, secondaryWindow UsageWindowInfo) (AccountInfo, error) {
+	if strings.TrimSpace(accountID) == "" {
+		return AccountInfo{}, errors.New("账号 account_id 不能为空")
+	}
+
+	primaryValue, err := encodeUsageWindow(primaryWindow)
+	if err != nil {
+		return AccountInfo{}, fmt.Errorf("序列化 5 小时额度窗口失败: %w", err)
+	}
+	secondaryValue, err := encodeUsageWindow(secondaryWindow)
+	if err != nil {
+		return AccountInfo{}, fmt.Errorf("序列化一周额度窗口失败: %w", err)
+	}
+
+	row := s.db.QueryRow(`
+UPDATE accounts
+SET user_id = CASE WHEN ? <> '' THEN ? ELSE user_id END,
+	email = CASE WHEN ? <> '' THEN ? ELSE email END,
+	subscription = CASE WHEN ? <> '' THEN ? ELSE subscription END,
+	primary_window = ?,
+	secondary_window = ?,
+	updated_at = CURRENT_TIMESTAMP
+WHERE account_id = ?
+RETURNING id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, expires_at, updated_at`,
+		userID, userID,
+		email, email,
+		subscription, subscription,
+		primaryValue,
+		secondaryValue,
+		accountID,
+	)
+	item, err := scanAccountInfo(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AccountInfo{}, errors.New("账号不存在")
+	}
+	if err != nil {
+		return AccountInfo{}, fmt.Errorf("更新账号额度失败: %w", err)
+	}
+
+	appLogger.Info("账号额度已更新数据库",
+		"id", item.ID,
+		"account_id", item.AccountID,
+		"primary_used_percent", item.PrimaryWindow.UsedPercent,
+		"secondary_used_percent", item.SecondaryWindow.UsedPercent,
+	)
 	return item, nil
 }
 
