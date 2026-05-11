@@ -6,6 +6,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 //go:embed all:frontend/dist
@@ -29,9 +30,26 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
+		BackgroundColour: &options.RGBA{R: 31, G: 47, B: 63, A: 1},
+		Windows: &windows.Options{
+			Theme: windows.Dark,
+			CustomTheme: &windows.ThemeSettings{
+				DarkModeTitleBar:           windows.RGB(31, 47, 63),
+				DarkModeTitleBarInactive:   windows.RGB(31, 47, 63),
+				DarkModeTitleText:          windows.RGB(255, 255, 255),
+				DarkModeTitleTextInactive:  windows.RGB(182, 195, 209),
+				DarkModeBorder:             windows.RGB(50, 71, 91),
+				DarkModeBorderInactive:     windows.RGB(50, 71, 91),
+				LightModeTitleBar:          windows.RGB(31, 47, 63),
+				LightModeTitleBarInactive:  windows.RGB(31, 47, 63),
+				LightModeTitleText:         windows.RGB(255, 255, 255),
+				LightModeTitleTextInactive: windows.RGB(182, 195, 209),
+				LightModeBorder:            windows.RGB(50, 71, 91),
+				LightModeBorderInactive:    windows.RGB(50, 71, 91),
+			},
+		},
+		OnStartup:  app.startup,
+		OnShutdown: app.shutdown,
 		Bind: []interface{}{
 			app,
 		},
