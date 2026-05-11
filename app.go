@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -22,6 +23,7 @@ type App struct {
 	usageWG      sync.WaitGroup
 	usageMu      sync.Mutex
 	usageRunning bool
+	usageLastRun time.Time
 }
 
 // NewApp 创建一个新的应用实例。
@@ -37,7 +39,7 @@ func (a *App) startup(ctx context.Context) {
 		a.proxyInitErr = err
 		appLogger.Error("初始化代理服务失败", "error", err)
 	} else {
-		//a.startAccountUsageRefresher()
+		a.startAccountUsageRefresher()
 	}
 	startSystemTray(a)
 	appLogger.Info("Wails 启动回调完成")
@@ -214,7 +216,10 @@ func (a *App) RefreshAccountUsage() error {
 		return err
 	}
 	appLogger.Info("手动刷新账号额度开始")
-	a.refreshAllAccountUsage(context.Background())
+	if err := a.refreshAllAccountUsage(context.Background()); err != nil {
+		appLogger.Warn("手动刷新账号额度未执行", "error", err)
+		return err
+	}
 	appLogger.Info("手动刷新账号额度完成")
 	return nil
 }
