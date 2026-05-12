@@ -30,6 +30,7 @@ export namespace main {
 	    subscriptionExpiresAt: string;
 	    primaryWindow: UsageWindowInfo;
 	    secondaryWindow: UsageWindowInfo;
+	    active: boolean;
 	    expiresAt: string;
 	    updatedAt: string;
 	
@@ -50,6 +51,7 @@ export namespace main {
 	        this.subscriptionExpiresAt = source["subscriptionExpiresAt"];
 	        this.primaryWindow = this.convertValues(source["primaryWindow"], UsageWindowInfo);
 	        this.secondaryWindow = this.convertValues(source["secondaryWindow"], UsageWindowInfo);
+	        this.active = source["active"];
 	        this.expiresAt = source["expiresAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }

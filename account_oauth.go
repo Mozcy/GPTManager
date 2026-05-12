@@ -40,6 +40,7 @@ type AccountInfo struct {
 	SubscriptionExpiresAt string          `json:"subscriptionExpiresAt"`
 	PrimaryWindow         UsageWindowInfo `json:"primaryWindow"`
 	SecondaryWindow       UsageWindowInfo `json:"secondaryWindow"`
+	Active                bool            `json:"active"`
 	ExpiresAt             string          `json:"expiresAt"`
 	UpdatedAt             string          `json:"updatedAt"`
 }
@@ -179,6 +180,11 @@ func (a *App) waitOpenAIAuthCallback(server *http.Server, callbackCh <-chan oaut
 		if account.ID <= 0 || account.Provider == "" || account.Subject == "" || account.UserID == "" || account.AccountID == "" {
 			err = fmt.Errorf("账号保存结果无效: id=%d provider=%q subject=%q user_id=%q account_id=%q", account.ID, account.Provider, account.Subject, account.UserID, account.AccountID)
 			break
+		}
+		if account.Active {
+			record.ID = account.ID
+			record.AccountInfo = account
+			a.proxyManager.SetActiveAccount(record)
 		}
 	case <-time.After(5 * time.Minute):
 		err = errors.New("OpenAI OAuth 登录超时")

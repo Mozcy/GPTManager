@@ -57,11 +57,20 @@ func NewProxyManager(store *ProxyStore) *ProxyManager {
 		upstreamConfig = defaultUpstreamConfig()
 	}
 	appLogger.Info("二次代理配置已加载到内存", "type", upstreamConfig.Type, "address", upstreamConfig.IP+":"+upstreamConfig.Port)
-	return &ProxyManager{
+	manager := &ProxyManager{
 		store:          store,
 		running:        make(map[int64]*runningProxy),
 		upstreamConfig: upstreamConfig,
 	}
+	if record, ok, err := store.GetActiveAccountRecord(); err != nil {
+		appLogger.Error("加载激活账号缓存失败", "error", err)
+	} else if ok {
+		manager.SetActiveAccount(record)
+		appLogger.Info("激活账号已从数据库加载到内存", "id", record.ID, "account_id", record.AccountID, "email", record.Email)
+	} else {
+		appLogger.Info("未找到已保存的激活账号")
+	}
+	return manager
 }
 
 // GetUpstreamConfig 返回当前内存中的二次代理配置快照。

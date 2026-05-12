@@ -51,7 +51,10 @@ async function loadAccounts() {
   accountLoading.value = true
   try {
     accounts.value = await ListAccounts()
-    if (selectedAccountId.value && !accounts.value.some((item) => item.id === selectedAccountId.value)) {
+    const activeAccount = accounts.value.find((item) => item.active)
+    if (activeAccount) {
+      selectedAccountId.value = activeAccount.id
+    } else if (selectedAccountId.value && !accounts.value.some((item) => item.id === selectedAccountId.value)) {
       selectedAccountId.value = null
     }
   } catch (error) {
@@ -72,9 +75,21 @@ function upsertAccount(account) {
       ...accounts.value[index],
       ...account,
     }
+    syncActiveAccount(account)
     return
   }
   accounts.value.unshift(account)
+  syncActiveAccount(account)
+}
+
+function syncActiveAccount(account) {
+  if (!account?.active || !account.id) return
+
+  selectedAccountId.value = account.id
+  accounts.value = accounts.value.map((item) => ({
+    ...item,
+    active: item.id === account.id,
+  }))
 }
 
 async function addAccount() {
@@ -193,7 +208,7 @@ function formatUsageResetTime(window) {
 
     <el-table v-loading="accountLoading" :data="accounts" class="proxy-table" empty-text="暂无账号" border>
       <el-table-column type="index" label="序号" width="70" align="center" />
-      <el-table-column label="" width="52" align="center">
+      <el-table-column label="活动" width="60" align="center">
         <template #default="{ row }">
           <el-radio v-model="selectedAccountId" class="account-radio" :label="row.id" :disabled="accountActivating" />
         </template>
@@ -208,7 +223,7 @@ function formatUsageResetTime(window) {
           <span class="proxy-text">{{ row.email || '未知' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="5/hours" width="100" align="center">
+      <el-table-column label="5/hours" width="80" align="center">
         <template #default="{ row }">
           <span class="proxy-text">{{ formatRemainingQuota(row.primaryWindow) }}</span>
         </template>
@@ -218,7 +233,7 @@ function formatUsageResetTime(window) {
           <span class="proxy-text">{{ formatUsageResetTime(row.primaryWindow) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="7/day" width="100" align="center">
+      <el-table-column label="7/day" width="80" align="center">
         <template #default="{ row }">
           <span class="proxy-text">{{ formatRemainingQuota(row.secondaryWindow) }}</span>
         </template>

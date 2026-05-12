@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS accounts (
 	subscription_expires_at TEXT NOT NULL DEFAULT '',
 	primary_window TEXT NOT NULL DEFAULT '',
 	secondary_window TEXT NOT NULL DEFAULT '',
+	active INTEGER NOT NULL DEFAULT 0,
 	access_token TEXT NOT NULL,
 	refresh_token TEXT NOT NULL DEFAULT '',
 	id_token TEXT NOT NULL DEFAULT '',
@@ -145,6 +146,7 @@ func (s *ProxyStore) migrateAccountColumns() error {
 		"ALTER TABLE accounts ADD COLUMN subscription_expires_at TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE accounts ADD COLUMN primary_window TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE accounts ADD COLUMN secondary_window TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN active INTEGER NOT NULL DEFAULT 0",
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
@@ -363,9 +365,9 @@ ON CONFLICT(id) DO UPDATE SET
 // ListAccounts 返回已保存的账号信息，不包含 token 明文。
 func (s *ProxyStore) ListAccounts() ([]AccountInfo, error) {
 	rows, err := s.db.Query(`
-SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, expires_at, updated_at
+SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at
 FROM accounts
-ORDER BY updated_at DESC, id DESC`)
+ORDER BY active DESC, updated_at DESC, id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("查询账号失败: %w", err)
 	}
@@ -390,11 +392,11 @@ ORDER BY updated_at DESC, id DESC`)
 // ListAccountRecords 返回包含 token 的账号记录，仅供后端刷新额度使用。
 func (s *ProxyStore) ListAccountRecords() ([]accountRecord, error) {
 	rows, err := s.db.Query(`
-SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, expires_at, updated_at,
+SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
 	access_token, refresh_token, id_token, token_type
 FROM accounts
 WHERE access_token <> ''
-ORDER BY updated_at DESC, id DESC`)
+ORDER BY active DESC, updated_at DESC, id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("查询账号 token 失败: %w", err)
 	}
@@ -424,7 +426,7 @@ func (s *ProxyStore) GetAccountRecord(id int64) (accountRecord, error) {
 	}
 
 	row := s.db.QueryRow(`
-SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, expires_at, updated_at,
+SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
 	access_token, refresh_token, id_token, token_type
 FROM accounts
 WHERE id = ?`, id)
@@ -440,6 +442,71 @@ WHERE id = ?`, id)
 	return record, nil
 }
 
+// GetActiveAccountRecord 返回数据库中持久化的激活账号。
+func (s *ProxyStore) GetActiveAccountRecord() (accountRecord, bool, error) {
+	row := s.db.QueryRow(`
+SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
+	access_token, refresh_token, id_token, token_type
+FROM accounts
+WHERE active = 1 AND access_token <> ''
+ORDER BY updated_at DESC, id DESC
+LIMIT 1`)
+	info, record, err := scanAccountRecord(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return accountRecord{}, false, nil
+	}
+	if err != nil {
+		return accountRecord{}, false, fmt.Errorf("查询激活账号失败: %w", err)
+	}
+	record.AccountInfo = info
+	appLogger.Info("查询激活账号完成", "id", record.ID, "account_id", record.AccountID, "email", record.Email)
+	return record, true, nil
+}
+
+// SetActiveAccount 将指定账号标记为唯一激活账号，并返回包含 token 的记录。
+func (s *ProxyStore) SetActiveAccount(id int64) (accountRecord, error) {
+	if id <= 0 {
+		return accountRecord{}, errors.New("账号 ID 无效")
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return accountRecord{}, fmt.Errorf("开始激活账号事务失败: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	row := tx.QueryRow(`
+UPDATE accounts
+SET active = 1, updated_at = CURRENT_TIMESTAMP
+WHERE id = ? AND access_token <> ''
+RETURNING id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
+	access_token, refresh_token, id_token, token_type`, id)
+	info, record, err := scanAccountRecord(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return accountRecord{}, errors.New("账号不存在或 access_token 为空")
+	}
+	if err != nil {
+		return accountRecord{}, fmt.Errorf("激活账号失败: %w", err)
+	}
+	record.AccountInfo = info
+
+	if _, err := tx.Exec("UPDATE accounts SET active = 0 WHERE active = 1 AND id <> ?", id); err != nil {
+		return accountRecord{}, fmt.Errorf("清理其他激活账号失败: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return accountRecord{}, fmt.Errorf("提交激活账号事务失败: %w", err)
+	}
+	committed = true
+
+	appLogger.Info("账号激活状态已写入数据库", "id", record.ID, "account_id", record.AccountID, "email", record.Email)
+	return record, nil
+}
+
 type sqlScanner interface {
 	Scan(dest ...any) error
 }
@@ -449,6 +516,7 @@ func scanAccountInfo(scanner sqlScanner) (AccountInfo, error) {
 	var item AccountInfo
 	var primaryWindow string
 	var secondaryWindow string
+	var active int
 	err := scanner.Scan(
 		&item.ID,
 		&item.Provider,
@@ -461,6 +529,7 @@ func scanAccountInfo(scanner sqlScanner) (AccountInfo, error) {
 		&item.SubscriptionExpiresAt,
 		&primaryWindow,
 		&secondaryWindow,
+		&active,
 		&item.ExpiresAt,
 		&item.UpdatedAt,
 	)
@@ -469,6 +538,7 @@ func scanAccountInfo(scanner sqlScanner) (AccountInfo, error) {
 	}
 	item.PrimaryWindow = decodeUsageWindow(primaryWindow)
 	item.SecondaryWindow = decodeUsageWindow(secondaryWindow)
+	item.Active = active == 1
 	return item, nil
 }
 
@@ -478,6 +548,7 @@ func scanAccountRecord(scanner sqlScanner) (AccountInfo, accountRecord, error) {
 	var record accountRecord
 	var primaryWindow string
 	var secondaryWindow string
+	var active int
 	err := scanner.Scan(
 		&item.ID,
 		&item.Provider,
@@ -490,6 +561,7 @@ func scanAccountRecord(scanner sqlScanner) (AccountInfo, accountRecord, error) {
 		&item.SubscriptionExpiresAt,
 		&primaryWindow,
 		&secondaryWindow,
+		&active,
 		&item.ExpiresAt,
 		&item.UpdatedAt,
 		&record.AccessToken,
@@ -502,6 +574,7 @@ func scanAccountRecord(scanner sqlScanner) (AccountInfo, accountRecord, error) {
 	}
 	item.PrimaryWindow = decodeUsageWindow(primaryWindow)
 	item.SecondaryWindow = decodeUsageWindow(secondaryWindow)
+	item.Active = active == 1
 	return item, record, nil
 }
 
@@ -584,7 +657,7 @@ ON CONFLICT(provider, subject) DO UPDATE SET
 	token_type = excluded.token_type,
 	expires_at = excluded.expires_at,
 	updated_at = CURRENT_TIMESTAMP
-RETURNING id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, expires_at, updated_at`,
+RETURNING id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at`,
 		input.Provider, input.Subject, input.UserID, input.AccountID, input.Email, input.Name, input.Subscription, input.SubscriptionExpiresAt,
 		input.AccessToken, input.RefreshToken, input.IDToken, input.TokenType, input.ExpiresAt)
 	item, err := scanAccountInfo(row)
@@ -601,7 +674,7 @@ RETURNING id, provider, subject, user_id, account_id, email, name, subscription,
 // GetAccountBySubject 根据 provider 和 subject 查询账号。
 func (s *ProxyStore) GetAccountBySubject(provider string, subject string) (AccountInfo, error) {
 	row := s.db.QueryRow(`
-SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, expires_at, updated_at
+SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at
 FROM accounts
 WHERE provider = ? AND subject = ?`, provider, subject)
 	item, err := scanAccountInfo(row)
@@ -638,7 +711,7 @@ SET user_id = CASE WHEN ? <> '' THEN ? ELSE user_id END,
 	secondary_window = ?,
 	updated_at = CURRENT_TIMESTAMP
 WHERE account_id = ?
-RETURNING id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, expires_at, updated_at`,
+RETURNING id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at`,
 		userID, userID,
 		email, email,
 		subscription, subscription,

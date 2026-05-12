@@ -39,7 +39,7 @@ func (a *App) startup(ctx context.Context) {
 		a.proxyInitErr = err
 		appLogger.Error("初始化代理服务失败", "error", err)
 	} else {
-		a.startAccountUsageRefresher()
+		//a.startAccountUsageRefresher()
 	}
 	startSystemTray(a)
 	appLogger.Info("Wails 启动回调完成")
@@ -230,14 +230,9 @@ func (a *App) ActivateAccount(id int64) (AccountInfo, error) {
 		appLogger.Error("激活账号失败: 服务未初始化", "error", err, "id", id)
 		return AccountInfo{}, err
 	}
-	record, err := a.proxyStore.GetAccountRecord(id)
+	record, err := a.proxyStore.SetActiveAccount(id)
 	if err != nil {
-		appLogger.Error("激活账号失败: 查询账号失败", "error", err, "id", id)
-		return AccountInfo{}, err
-	}
-	if record.AccessToken == "" {
-		err := errors.New("账号 access_token 为空")
-		appLogger.Error("激活账号失败", "error", err, "id", id, "account_id", record.AccountID)
+		appLogger.Error("激活账号失败: 更新数据库失败", "error", err, "id", id)
 		return AccountInfo{}, err
 	}
 
