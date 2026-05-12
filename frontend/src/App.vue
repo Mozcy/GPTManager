@@ -1,22 +1,20 @@
 <script setup>
-import CreateProxy from './components/CreateProxy.vue';
-import HelloWorld from './components/HelloWorld.vue'</script>
+import AccountManager from './components/AccountManager.vue'
+import CreateProxy from './components/CreateProxy.vue'
+import UpstreamStatusBar from './components/UpstreamStatusBar.vue'
+</script>
 
 <template>
-  <CreateProxy/>
-  <HelloWorld/>
+  <main class="app-page">
+    <CreateProxy />
+    <AccountManager />
+    <UpstreamStatusBar />
+  </main>
 </template>
 
 <style>
-#logo {
-  display: block;
-  width: 50%;
-  height: 50%;
-  margin: auto;
-  padding: 10% 0 0;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: 100% 100%;
-  background-origin: content-box;
+.app-page {
+  width: 100%;
+  box-sizing: border-box;
 }
 </style>
