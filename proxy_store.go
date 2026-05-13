@@ -483,7 +483,7 @@ func (s *ProxyStore) ListAccounts() ([]AccountInfo, error) {
 	rows, err := s.db.Query(`
 SELECT id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at
 FROM accounts
-ORDER BY active DESC, updated_at DESC, id DESC`)
+ORDER BY id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("查询账号失败: %w", err)
 	}
@@ -512,7 +512,7 @@ SELECT id, provider, subject, user_id, account_id, email, name, workspace_name, 
 	access_token, refresh_token, id_token, token_type
 FROM accounts
 WHERE access_token <> ''
-ORDER BY active DESC, updated_at DESC, id DESC`)
+ORDER BY id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("查询账号 token 失败: %w", err)
 	}
