@@ -203,7 +203,6 @@ function formatUsageSeconds(value) {
 
   return parts.join(' ')
 }
-
 </script>
 
 <template>
@@ -240,6 +239,11 @@ function formatUsageSeconds(value) {
       <el-table-column label="邮箱" min-width="220">
         <template #default="{ row }">
           <span class="proxy-text">{{ row.email || '未知' }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="工作空间">
+        <template #default="{ row }">
+          <span class="proxy-text">{{ row.workspaceName || '-' }}</span>
         </template>
       </el-table-column>
       <el-table-column label="5/hours" width="80" align="center">
@@ -290,6 +294,15 @@ function formatUsageSeconds(value) {
                   <span>订阅过期</span><strong>{{ formatDateTime(row.subscriptionExpiresAt) }}</strong>
                   <span>Token过期</span><strong>{{ formatDateTime(row.expiresAt) }}</strong>
                   <span>更新时间</span><strong>{{ formatDateTime(row.updatedAt) }}</strong>
+                </div>
+
+                <div class="detail-title secondary">工作空间</div>
+                <div class="detail-grid">
+                  <span>名称</span><strong>{{ row.workspaceName || '-' }}</strong>
+                  <span>类型</span><strong>{{ row.workspaceStructure || '-' }}</strong>
+                  <span>订阅通道</span><strong>{{ row.workspaceProcessor || '-' }}</strong>
+                  <span>用户角色</span><strong>{{ row.workspaceRole || '-' }}</strong>
+                  <span>创建时间</span><strong>{{ formatDateTime(row.workspaceCreatedTime) }}</strong>
                 </div>
 
                 <div class="detail-title secondary">5小时额度</div>

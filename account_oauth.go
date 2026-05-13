@@ -43,6 +43,22 @@ type AccountInfo struct {
 	Email                 string          `json:"email"`
 	// Name 是账号昵称，仅用于展示。
 	Name                  string          `json:"name"`
+	// WorkspaceName 是 ChatGPT workspace/team 名称，来自 /backend-api/accounts 匹配 account_id 的账号项。
+	WorkspaceName         string          `json:"workspaceName"`
+	// WorkspaceStructure 是 ChatGPT workspace 结构，例如 workspace/personal。
+	WorkspaceStructure    string          `json:"workspaceStructure"`
+	// WorkspaceCreatedTime 是 ChatGPT workspace 创建时间。
+	WorkspaceCreatedTime  string          `json:"workspaceCreatedTime"`
+	// WorkspaceProcessor 是 ChatGPT workspace 账单处理器。
+	WorkspaceProcessor    string          `json:"workspaceProcessor"`
+	// WorkspaceRole 是当前用户在 ChatGPT workspace 中的角色。
+	WorkspaceRole         string          `json:"workspaceRole"`
+	// WorkspaceProfilePictureID 是 ChatGPT workspace 头像 ID。
+	WorkspaceProfilePictureID string      `json:"workspaceProfilePictureId"`
+	// WorkspaceProfilePictureURL 是 ChatGPT workspace 头像 URL。
+	WorkspaceProfilePictureURL string     `json:"workspaceProfilePictureUrl"`
+	// WorkspaceEligibleForAutoReactivation 表示 workspace 是否支持自动恢复。
+	WorkspaceEligibleForAutoReactivation bool `json:"workspaceEligibleForAutoReactivation"`
 	// Subscription 是 ChatGPT 订阅类型，例如 free/plus/team。
 	Subscription          string          `json:"subscription"`
 	// SubscriptionExpiresAt 是 ChatGPT 订阅有效期，来自 token claims 的 chatgpt_subscription_active_until，不等同于 access_token 过期时间。

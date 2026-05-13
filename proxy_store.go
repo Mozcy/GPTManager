@@ -112,6 +112,14 @@ CREATE TABLE IF NOT EXISTS accounts (
 	account_id TEXT NOT NULL DEFAULT '',
 	email TEXT NOT NULL DEFAULT '',
 	name TEXT NOT NULL DEFAULT '',
+	workspace_name TEXT NOT NULL DEFAULT '',
+	workspace_structure TEXT NOT NULL DEFAULT '',
+	workspace_created_time TEXT NOT NULL DEFAULT '',
+	workspace_processor TEXT NOT NULL DEFAULT '',
+	workspace_role TEXT NOT NULL DEFAULT '',
+	workspace_profile_picture_id TEXT NOT NULL DEFAULT '',
+	workspace_profile_picture_url TEXT NOT NULL DEFAULT '',
+	workspace_eligible_for_auto_reactivation INTEGER NOT NULL DEFAULT 0,
 	subscription TEXT NOT NULL DEFAULT '',
 	subscription_expires_at TEXT NOT NULL DEFAULT '',
 	primary_window TEXT NOT NULL DEFAULT '',
@@ -147,6 +155,14 @@ func (s *ProxyStore) migrateAccountColumns() error {
 		"ALTER TABLE accounts ADD COLUMN primary_window TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE accounts ADD COLUMN secondary_window TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE accounts ADD COLUMN active INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE accounts ADD COLUMN workspace_name TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN workspace_structure TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN workspace_created_time TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN workspace_processor TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN workspace_role TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN workspace_profile_picture_id TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN workspace_profile_picture_url TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE accounts ADD COLUMN workspace_eligible_for_auto_reactivation INTEGER NOT NULL DEFAULT 0",
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
@@ -197,6 +213,14 @@ CREATE TABLE accounts_new (
 	account_id TEXT NOT NULL DEFAULT '',
 	email TEXT NOT NULL DEFAULT '',
 	name TEXT NOT NULL DEFAULT '',
+	workspace_name TEXT NOT NULL DEFAULT '',
+	workspace_structure TEXT NOT NULL DEFAULT '',
+	workspace_created_time TEXT NOT NULL DEFAULT '',
+	workspace_processor TEXT NOT NULL DEFAULT '',
+	workspace_role TEXT NOT NULL DEFAULT '',
+	workspace_profile_picture_id TEXT NOT NULL DEFAULT '',
+	workspace_profile_picture_url TEXT NOT NULL DEFAULT '',
+	workspace_eligible_for_auto_reactivation INTEGER NOT NULL DEFAULT 0,
 	subscription TEXT NOT NULL DEFAULT '',
 	subscription_expires_at TEXT NOT NULL DEFAULT '',
 	primary_window TEXT NOT NULL DEFAULT '',
@@ -216,13 +240,19 @@ CREATE TABLE accounts_new (
 
 	if _, err := tx.Exec(`
 INSERT INTO accounts_new (
-	id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at,
+	id, provider, subject, user_id, account_id, email, name,
+	workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role,
+	workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation,
+	subscription, subscription_expires_at,
 	primary_window, secondary_window, active, access_token, refresh_token, id_token, token_type, expires_at, created_at, updated_at
 )
 SELECT
 	id, provider, subject, user_id,
 	CASE WHEN account_id <> '' THEN account_id ELSE 'legacy-' || id END,
-	email, name, subscription, subscription_expires_at,
+	email, name,
+	workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role,
+	workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation,
+	subscription, subscription_expires_at,
 	primary_window, secondary_window, active, access_token, refresh_token, id_token, token_type, expires_at, created_at, updated_at
 FROM accounts`); err != nil {
 		return fmt.Errorf("迁移账号数据失败: %w", err)
@@ -451,7 +481,7 @@ ON CONFLICT(id) DO UPDATE SET
 // ListAccounts 返回已保存的账号信息，不包含 token 明文。
 func (s *ProxyStore) ListAccounts() ([]AccountInfo, error) {
 	rows, err := s.db.Query(`
-SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at
+SELECT id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at
 FROM accounts
 ORDER BY active DESC, updated_at DESC, id DESC`)
 	if err != nil {
@@ -478,7 +508,7 @@ ORDER BY active DESC, updated_at DESC, id DESC`)
 // ListAccountRecords 返回包含 token 的账号记录，仅供后端刷新额度使用。
 func (s *ProxyStore) ListAccountRecords() ([]accountRecord, error) {
 	rows, err := s.db.Query(`
-SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
+SELECT id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
 	access_token, refresh_token, id_token, token_type
 FROM accounts
 WHERE access_token <> ''
@@ -512,7 +542,7 @@ func (s *ProxyStore) GetAccountRecord(id int64) (accountRecord, error) {
 	}
 
 	row := s.db.QueryRow(`
-SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
+SELECT id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
 	access_token, refresh_token, id_token, token_type
 FROM accounts
 WHERE id = ?`, id)
@@ -531,7 +561,7 @@ WHERE id = ?`, id)
 // GetActiveAccountRecord 返回数据库中持久化的激活账号。
 func (s *ProxyStore) GetActiveAccountRecord() (accountRecord, bool, error) {
 	row := s.db.QueryRow(`
-SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
+SELECT id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
 	access_token, refresh_token, id_token, token_type
 FROM accounts
 WHERE active = 1 AND access_token <> ''
@@ -570,7 +600,7 @@ func (s *ProxyStore) SetActiveAccount(id int64) (accountRecord, error) {
 UPDATE accounts
 SET active = 1, updated_at = CURRENT_TIMESTAMP
 WHERE id = ? AND access_token <> ''
-RETURNING id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
+RETURNING id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
 	access_token, refresh_token, id_token, token_type`, id)
 	info, record, err := scanAccountRecord(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -603,6 +633,7 @@ func scanAccountInfo(scanner sqlScanner) (AccountInfo, error) {
 	var primaryWindow string
 	var secondaryWindow string
 	var active int
+	var workspaceEligible int
 	err := scanner.Scan(
 		&item.ID,
 		&item.Provider,
@@ -611,6 +642,14 @@ func scanAccountInfo(scanner sqlScanner) (AccountInfo, error) {
 		&item.AccountID,
 		&item.Email,
 		&item.Name,
+		&item.WorkspaceName,
+		&item.WorkspaceStructure,
+		&item.WorkspaceCreatedTime,
+		&item.WorkspaceProcessor,
+		&item.WorkspaceRole,
+		&item.WorkspaceProfilePictureID,
+		&item.WorkspaceProfilePictureURL,
+		&workspaceEligible,
 		&item.Subscription,
 		&item.SubscriptionExpiresAt,
 		&primaryWindow,
@@ -625,6 +664,7 @@ func scanAccountInfo(scanner sqlScanner) (AccountInfo, error) {
 	item.PrimaryWindow = decodeUsageWindow(primaryWindow)
 	item.SecondaryWindow = decodeUsageWindow(secondaryWindow)
 	item.Active = active == 1
+	item.WorkspaceEligibleForAutoReactivation = workspaceEligible == 1
 	return item, nil
 }
 
@@ -635,6 +675,7 @@ func scanAccountRecord(scanner sqlScanner) (AccountInfo, accountRecord, error) {
 	var primaryWindow string
 	var secondaryWindow string
 	var active int
+	var workspaceEligible int
 	err := scanner.Scan(
 		&item.ID,
 		&item.Provider,
@@ -643,6 +684,14 @@ func scanAccountRecord(scanner sqlScanner) (AccountInfo, accountRecord, error) {
 		&item.AccountID,
 		&item.Email,
 		&item.Name,
+		&item.WorkspaceName,
+		&item.WorkspaceStructure,
+		&item.WorkspaceCreatedTime,
+		&item.WorkspaceProcessor,
+		&item.WorkspaceRole,
+		&item.WorkspaceProfilePictureID,
+		&item.WorkspaceProfilePictureURL,
+		&workspaceEligible,
 		&item.Subscription,
 		&item.SubscriptionExpiresAt,
 		&primaryWindow,
@@ -661,6 +710,7 @@ func scanAccountRecord(scanner sqlScanner) (AccountInfo, accountRecord, error) {
 	item.PrimaryWindow = decodeUsageWindow(primaryWindow)
 	item.SecondaryWindow = decodeUsageWindow(secondaryWindow)
 	item.Active = active == 1
+	item.WorkspaceEligibleForAutoReactivation = workspaceEligible == 1
 	return item, record, nil
 }
 
@@ -743,7 +793,7 @@ ON CONFLICT(provider, account_id) DO UPDATE SET
 	token_type = excluded.token_type,
 	expires_at = excluded.expires_at,
 	updated_at = CURRENT_TIMESTAMP
-RETURNING id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at`,
+RETURNING id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at`,
 		input.Provider, input.Subject, input.UserID, input.AccountID, input.Email, input.Name, input.Subscription, input.SubscriptionExpiresAt,
 		input.AccessToken, input.RefreshToken, input.IDToken, input.TokenType, input.ExpiresAt)
 	item, err := scanAccountInfo(row)
@@ -760,7 +810,7 @@ RETURNING id, provider, subject, user_id, account_id, email, name, subscription,
 // GetAccountBySubject 根据 provider 和 subject 查询账号。
 func (s *ProxyStore) GetAccountBySubject(provider string, subject string) (AccountInfo, error) {
 	row := s.db.QueryRow(`
-SELECT id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at
+SELECT id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at
 FROM accounts
 WHERE provider = ? AND subject = ?`, provider, subject)
 	item, err := scanAccountInfo(row)
@@ -797,7 +847,7 @@ SET user_id = CASE WHEN ? <> '' THEN ? ELSE user_id END,
 	secondary_window = ?,
 	updated_at = CURRENT_TIMESTAMP
 WHERE account_id = ?
-RETURNING id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at`,
+RETURNING id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at`,
 		userID, userID,
 		email, email,
 		subscription, subscription,
@@ -818,6 +868,62 @@ RETURNING id, provider, subject, user_id, account_id, email, name, subscription,
 		"account_id", item.AccountID,
 		"primary_used_percent", item.PrimaryWindow.UsedPercent,
 		"secondary_used_percent", item.SecondaryWindow.UsedPercent,
+	)
+	return item, nil
+}
+
+// UpdateAccountWorkspace 更新账号匹配到的 ChatGPT workspace 信息。
+func (s *ProxyStore) UpdateAccountWorkspace(accountID string, workspace accountWorkspaceInfo) (AccountInfo, error) {
+	if strings.TrimSpace(accountID) == "" {
+		return AccountInfo{}, errors.New("账号 account_id 不能为空")
+	}
+	if strings.TrimSpace(workspace.ID) == "" {
+		return AccountInfo{}, errors.New("工作空间 id 不能为空")
+	}
+	if workspace.ID != accountID {
+		return AccountInfo{}, fmt.Errorf("工作空间 id 与账号 account_id 不一致: local=%s remote=%s", accountID, workspace.ID)
+	}
+
+	eligible := 0
+	if workspace.EligibleForAutoReactivation {
+		eligible = 1
+	}
+
+	row := s.db.QueryRow(`
+UPDATE accounts
+SET workspace_name = ?,
+	workspace_structure = ?,
+	workspace_created_time = ?,
+	workspace_processor = ?,
+	workspace_role = ?,
+	workspace_profile_picture_id = ?,
+	workspace_profile_picture_url = ?,
+	workspace_eligible_for_auto_reactivation = ?,
+	updated_at = CURRENT_TIMESTAMP
+WHERE account_id = ?
+RETURNING id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at`,
+		workspace.Name,
+		workspace.Structure,
+		workspace.CreatedTime,
+		workspace.Processor,
+		workspace.CurrentUserRole,
+		workspace.ProfilePictureID,
+		workspace.ProfilePictureURL,
+		eligible,
+		accountID,
+	)
+	item, err := scanAccountInfo(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AccountInfo{}, errors.New("账号不存在")
+	}
+	if err != nil {
+		return AccountInfo{}, fmt.Errorf("更新账号工作空间失败: %w", err)
+	}
+
+	appLogger.Info("账号工作空间已更新数据库",
+		"id", item.ID,
+		"account_id", item.AccountID,
+		"workspace_name", item.WorkspaceName,
 	)
 	return item, nil
 }

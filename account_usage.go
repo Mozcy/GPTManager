@@ -16,6 +16,7 @@ import (
 
 const (
 	accountUsageEndpoint        = "https://chatgpt.com/backend-api/wham/usage"
+	accountWorkspaceEndpoint    = "https://chatgpt.com/backend-api/accounts"
 	accountUsageUpdatedEvent    = "account:usage-updated"
 	accountUsageErrorEvent      = "account:usage-error"
 	accountUsageUserAgent       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
@@ -40,6 +41,22 @@ type accountUsageResponse struct {
 		PrimaryWindow   usageWindowResponse `json:"primary_window"`
 		SecondaryWindow usageWindowResponse `json:"secondary_window"`
 	} `json:"rate_limit"`
+}
+
+type accountWorkspaceResponse struct {
+	Items []accountWorkspaceInfo `json:"items"`
+}
+
+type accountWorkspaceInfo struct {
+	ID                              string `json:"id"`
+	Name                            string `json:"name"`
+	ProfilePictureID                string `json:"profile_picture_id"`
+	ProfilePictureURL               string `json:"profile_picture_url"`
+	Structure                       string `json:"structure"`
+	CreatedTime                     string `json:"created_time"`
+	Processor                       string `json:"processor"`
+	CurrentUserRole                 string `json:"current_user_role"`
+	EligibleForAutoReactivation     bool   `json:"eligible_for_auto_reactivation"`
 }
 
 type usageWindowResponse struct {
@@ -227,7 +244,7 @@ func (a *App) refreshAccountUsage(ctx context.Context, client *http.Client, reco
 		return AccountInfo{}, fmt.Errorf("额度接口返回的 user_id 与本地账号不一致: local=%s remote=%s", record.UserID, usage.UserID)
 	}
 
-	return a.proxyStore.UpdateAccountUsage(
+	updated, err := a.proxyStore.UpdateAccountUsage(
 		record.AccountID,
 		usage.UserID,
 		usage.Email,
@@ -235,6 +252,26 @@ func (a *App) refreshAccountUsage(ctx context.Context, client *http.Client, reco
 		usage.RateLimit.PrimaryWindow.toUsageWindowInfo(),
 		usage.RateLimit.SecondaryWindow.toUsageWindowInfo(),
 	)
+	if err != nil {
+		return AccountInfo{}, err
+	}
+
+	workspace, ok, err := fetchAccountWorkspace(ctx, client, record)
+	if err != nil {
+		appLogger.Warn("刷新账号工作空间失败", "error", err, "account_id", record.AccountID, "email", record.Email)
+		return updated, nil
+	}
+	if !ok {
+		appLogger.Warn("未匹配到账号工作空间", "account_id", record.AccountID, "email", record.Email)
+		return updated, nil
+	}
+
+	workspaceUpdated, err := a.proxyStore.UpdateAccountWorkspace(record.AccountID, workspace)
+	if err != nil {
+		appLogger.Warn("保存账号工作空间失败", "error", err, "account_id", record.AccountID, "workspace", workspace.Name)
+		return updated, nil
+	}
+	return workspaceUpdated, nil
 }
 
 // toUsageWindowInfo 将接口 snake_case 响应转换为前端使用的 camelCase 结构。
@@ -283,6 +320,46 @@ func fetchAccountUsage(ctx context.Context, client *http.Client, record accountR
 		return accountUsageResponse{}, err
 	}
 	return usage, nil
+}
+
+// fetchAccountWorkspace 调用 ChatGPT accounts 接口并按本地 account_id 匹配工作空间。
+func fetchAccountWorkspace(ctx context.Context, client *http.Client, record accountRecord) (accountWorkspaceInfo, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, accountWorkspaceEndpoint, nil)
+	if err != nil {
+		return accountWorkspaceInfo{}, false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+record.AccessToken)
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("Origin", "https://chatgpt.com")
+	req.Header.Set("Referer", "https://chatgpt.com/")
+	req.Header.Set("User-Agent", accountUsageUserAgent)
+	req.Header.Set("Sec-CH-UA", `"Chromium";v="136", "Google Chrome";v="136"`)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return accountWorkspaceInfo{}, false, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return accountWorkspaceInfo{}, false, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return accountWorkspaceInfo{}, false, fmt.Errorf("工作空间接口返回失败: %s %s", resp.Status, string(body))
+	}
+
+	var result accountWorkspaceResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return accountWorkspaceInfo{}, false, err
+	}
+	for _, item := range result.Items {
+		if item.ID == record.AccountID {
+			return item, true, nil
+		}
+	}
+	return accountWorkspaceInfo{}, false, nil
 }
 
 // emitAccountUsageError 推送单个账号额度刷新失败事件。
