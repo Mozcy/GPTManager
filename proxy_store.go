@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS accounts (
 	expires_at TEXT NOT NULL DEFAULT '',
 	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	UNIQUE(provider, subject)
+	UNIQUE(provider, account_id)
 );
 `
 	if _, err := s.db.Exec(schema); err != nil {
@@ -153,6 +153,92 @@ func (s *ProxyStore) migrateAccountColumns() error {
 			return fmt.Errorf("迁移账号表结构失败: %w", err)
 		}
 	}
+	if err := s.migrateAccountUniqueKey(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// migrateAccountUniqueKey 将账号唯一键从 provider+subject 迁移为 provider+account_id，支持同一用户加入多个 Team。
+func (s *ProxyStore) migrateAccountUniqueKey() error {
+	var tableSQL string
+	err := s.db.QueryRow("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'accounts'").Scan(&tableSQL)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("检查账号表唯一键失败: %w", err)
+	}
+	normalized := strings.ToLower(strings.NewReplacer(" ", "", "\n", "", "\r", "", "\t", "").Replace(tableSQL))
+	if !strings.Contains(normalized, "unique(provider,subject)") {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("开始迁移账号唯一键失败: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err := tx.Exec("DROP TABLE IF EXISTS accounts_new"); err != nil {
+		return fmt.Errorf("清理账号迁移临时表失败: %w", err)
+	}
+	if _, err := tx.Exec(`
+CREATE TABLE accounts_new (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	provider TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	user_id TEXT NOT NULL DEFAULT '',
+	account_id TEXT NOT NULL DEFAULT '',
+	email TEXT NOT NULL DEFAULT '',
+	name TEXT NOT NULL DEFAULT '',
+	subscription TEXT NOT NULL DEFAULT '',
+	subscription_expires_at TEXT NOT NULL DEFAULT '',
+	primary_window TEXT NOT NULL DEFAULT '',
+	secondary_window TEXT NOT NULL DEFAULT '',
+	active INTEGER NOT NULL DEFAULT 0,
+	access_token TEXT NOT NULL,
+	refresh_token TEXT NOT NULL DEFAULT '',
+	id_token TEXT NOT NULL DEFAULT '',
+	token_type TEXT NOT NULL DEFAULT '',
+	expires_at TEXT NOT NULL DEFAULT '',
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE(provider, account_id)
+)`); err != nil {
+		return fmt.Errorf("创建新账号表失败: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+INSERT INTO accounts_new (
+	id, provider, subject, user_id, account_id, email, name, subscription, subscription_expires_at,
+	primary_window, secondary_window, active, access_token, refresh_token, id_token, token_type, expires_at, created_at, updated_at
+)
+SELECT
+	id, provider, subject, user_id,
+	CASE WHEN account_id <> '' THEN account_id ELSE 'legacy-' || id END,
+	email, name, subscription, subscription_expires_at,
+	primary_window, secondary_window, active, access_token, refresh_token, id_token, token_type, expires_at, created_at, updated_at
+FROM accounts`); err != nil {
+		return fmt.Errorf("迁移账号数据失败: %w", err)
+	}
+
+	if _, err := tx.Exec("DROP TABLE accounts"); err != nil {
+		return fmt.Errorf("删除旧账号表失败: %w", err)
+	}
+	if _, err := tx.Exec("ALTER TABLE accounts_new RENAME TO accounts"); err != nil {
+		return fmt.Errorf("重命名新账号表失败: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交账号唯一键迁移失败: %w", err)
+	}
+	committed = true
+	appLogger.Info("账号唯一键已迁移为 provider+account_id")
 	return nil
 }
 
@@ -644,9 +730,9 @@ INSERT INTO accounts (
 	access_token, refresh_token, id_token, token_type, expires_at, updated_at
 )
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-ON CONFLICT(provider, subject) DO UPDATE SET
+ON CONFLICT(provider, account_id) DO UPDATE SET
+	subject = excluded.subject,
 	user_id = excluded.user_id,
-	account_id = excluded.account_id,
 	email = excluded.email,
 	name = excluded.name,
 	subscription = excluded.subscription,

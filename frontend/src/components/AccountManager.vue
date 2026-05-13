@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
-import { Delete, Refresh } from '@element-plus/icons-vue'
+import { Delete, QuestionFilled, Refresh } from '@element-plus/icons-vue'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import {
   ActivateAccount,
@@ -184,6 +184,26 @@ function formatUsageResetTime(window) {
 
   return dayjs.unix(window.resetAt).format('YYYY-MM-DD HH:mm:ss')
 }
+
+function formatUsageSeconds(value) {
+  const seconds = Number(value)
+  if (!Number.isFinite(seconds) || seconds <= 0) return '-'
+
+  const total = Math.floor(seconds)
+  const days = Math.floor(total / 86400)
+  const hours = Math.floor((total % 86400) / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const remainSeconds = total % 60
+  const parts = []
+
+  if (days > 0) parts.push(`${days}天`)
+  if (hours > 0) parts.push(`${hours}小时`)
+  if (minutes > 0) parts.push(`${minutes}分`)
+  if (remainSeconds > 0 || parts.length === 0) parts.push(`${remainSeconds}秒`)
+
+  return parts.join(' ')
+}
+
 </script>
 
 <template>
@@ -207,7 +227,6 @@ function formatUsageResetTime(window) {
     </template>
 
     <el-table v-loading="accountLoading" :data="accounts" class="proxy-table" empty-text="暂无账号" border>
-      <el-table-column type="index" label="序号" width="70" align="center" />
       <el-table-column label="活动" width="60" align="center">
         <template #default="{ row }">
           <el-radio v-model="selectedAccountId" class="account-radio" :label="row.id" :disabled="accountActivating" />
@@ -250,14 +269,47 @@ function formatUsageResetTime(window) {
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="过期时间" width="160">
+      <el-table-column label="操作" width="112" align="center">
         <template #default="{ row }">
-          <span class="proxy-text">{{ formatDateTime(row.subscriptionExpiresAt || row.expiresAt) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="80" align="center">
-        <template #default="{ row }">
-          <el-button class="icon-action danger" size="small" text :icon="Delete" @click="deleteAccount(row)" />
+          <div class="operation-actions">
+            <el-button class="icon-action danger" size="small" text :icon="Delete" @click="deleteAccount(row)" />
+            <el-popover trigger="click" placement="left" width="440" popper-class="account-detail-popover">
+              <template #reference>
+                <el-button class="icon-action info" size="small" text :icon="QuestionFilled" />
+              </template>
+              <div class="account-detail">
+                <div class="detail-title">账号详情</div>
+                <div class="detail-grid">
+                  <span>ID</span><strong>{{ row.id || '-' }}</strong>
+                  <span>名称</span><strong>{{ row.name || '-' }}</strong>
+                  <span>订阅</span><strong>{{ formatSubscription(row.subscription) }}</strong>
+                  <span>邮箱</span><strong>{{ row.email || '-' }}</strong>
+                  <span>Subject</span><strong>{{ row.subject || '-' }}</strong>
+                  <span>User ID</span><strong>{{ row.userId || '-' }}</strong>
+                  <span>Account ID</span><strong>{{ row.accountId || '-' }}</strong>
+                  <span>订阅过期</span><strong>{{ formatDateTime(row.subscriptionExpiresAt) }}</strong>
+                  <span>Token过期</span><strong>{{ formatDateTime(row.expiresAt) }}</strong>
+                  <span>更新时间</span><strong>{{ formatDateTime(row.updatedAt) }}</strong>
+                </div>
+
+                <div class="detail-title secondary">5小时额度</div>
+                <div class="detail-grid">
+                  <span>剩余额度</span><strong>{{ formatRemainingQuota(row.primaryWindow) }}</strong>
+                  <span>窗口秒数</span><strong>{{ formatUsageSeconds(row.primaryWindow?.limitWindowSeconds) }}</strong>
+                  <span>重置剩余</span><strong>{{ formatUsageSeconds(row.primaryWindow?.resetAfterSeconds) }}</strong>
+                  <span>重置时间</span><strong>{{ formatUsageResetTime(row.primaryWindow) }}</strong>
+                </div>
+
+                <div class="detail-title secondary">7天额度</div>
+                <div class="detail-grid">
+                  <span>剩余额度</span><strong>{{ formatRemainingQuota(row.secondaryWindow) }}</strong>
+                  <span>窗口秒数</span><strong>{{ formatUsageSeconds(row.secondaryWindow?.limitWindowSeconds) }}</strong>
+                  <span>重置剩余</span><strong>{{ formatUsageSeconds(row.secondaryWindow?.resetAfterSeconds) }}</strong>
+                  <span>重置时间</span><strong>{{ formatUsageResetTime(row.secondaryWindow) }}</strong>
+                </div>
+              </div>
+            </el-popover>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -309,6 +361,17 @@ function formatUsageResetTime(window) {
 
 .account-radio :deep(.el-radio__label) {
   display: none;
+}
+
+.operation-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.operation-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .subscription-badge {
@@ -372,6 +435,18 @@ function formatUsageResetTime(window) {
   background: #1b2636;
 }
 
+.icon-action.info {
+  color: #9bd0ff;
+  --el-button-hover-text-color: #ffffff;
+  --el-button-active-text-color: #ffffff;
+}
+
+.icon-action.info:hover,
+.icon-action.info:focus {
+  color: #ffffff;
+  background: #1b2636;
+}
+
 .icon-action.danger {
   color: #ff7a7a;
   --el-button-hover-text-color: #ffffff;
@@ -406,5 +481,82 @@ function formatUsageResetTime(window) {
 
 :deep(.el-table__empty-text) {
   color: #b6c3d1;
+}
+
+:global(.account-detail-popover) {
+  border: 1px solid #32475b !important;
+  background: #243447 !important;
+  color: #e8eef5 !important;
+}
+
+:global(.account-detail-popover .el-popper__arrow::before) {
+  border-color: #32475b !important;
+  background: #243447 !important;
+}
+
+.account-detail {
+  max-height: min(700px, 80vh);
+  overflow: auto;
+  padding-right: 2px;
+  scrollbar-color: #4f6680 #1f2f3f;
+  scrollbar-width: thin;
+}
+
+.account-detail::-webkit-scrollbar {
+  width: 8px;
+}
+
+.account-detail::-webkit-scrollbar-track {
+  background: #1f2f3f;
+  border-radius: 999px;
+}
+
+.account-detail::-webkit-scrollbar-thumb {
+  background: #4f6680;
+  border-radius: 999px;
+}
+
+.account-detail::-webkit-scrollbar-thumb:hover {
+  background: #66809b;
+}
+
+.detail-title {
+  margin-bottom: 10px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.detail-title.secondary {
+  margin-top: 16px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 8px 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #32475b;
+}
+
+.detail-grid:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.detail-grid span {
+  color: #94a8bd;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.detail-grid strong {
+  min-width: 0;
+  color: #e8eef5;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 </style>

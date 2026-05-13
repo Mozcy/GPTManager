@@ -29,19 +29,33 @@ const (
 
 // AccountInfo 表示前端展示用的账号信息。
 type AccountInfo struct {
+	// ID 是本地数据库账号记录 ID。
 	ID                    int64           `json:"id"`
+	// Provider 是账号来源，目前固定为 openai。
 	Provider              string          `json:"provider"`
+	// Subject 是 OAuth/JWT 中的 sub，用于唯一标识授权主体。
 	Subject               string          `json:"subject"`
+	// UserID 是 ChatGPT 用户 ID，来自 token claims 中的 chatgpt_user_id/user_id。
 	UserID                string          `json:"userId"`
+	// AccountID 是 ChatGPT 账号 ID，代理请求会写入 ChatGPT-Account-Id 请求头。
 	AccountID             string          `json:"accountId"`
+	// Email 是账号邮箱，仅用于展示。
 	Email                 string          `json:"email"`
+	// Name 是账号昵称，仅用于展示。
 	Name                  string          `json:"name"`
+	// Subscription 是 ChatGPT 订阅类型，例如 free/plus/team。
 	Subscription          string          `json:"subscription"`
+	// SubscriptionExpiresAt 是 ChatGPT 订阅有效期，来自 token claims 的 chatgpt_subscription_active_until，不等同于 access_token 过期时间。
 	SubscriptionExpiresAt string          `json:"subscriptionExpiresAt"`
+	// PrimaryWindow 是短周期额度窗口信息，当前对应 ChatGPT 5 小时额度。
 	PrimaryWindow         UsageWindowInfo `json:"primaryWindow"`
+	// SecondaryWindow 是长周期额度窗口信息，当前对应 ChatGPT 7 天额度。
 	SecondaryWindow       UsageWindowInfo `json:"secondaryWindow"`
+	// Active 表示该账号是否为当前持久化的活动账号。
 	Active                bool            `json:"active"`
+	// ExpiresAt 是 access_token JWT payload 中 exp 换算出的 Token 过期时间，缺失时才回退到 OAuth 响应 expires_in。
 	ExpiresAt             string          `json:"expiresAt"`
+	// UpdatedAt 是本地数据库记录最后更新时间。
 	UpdatedAt             string          `json:"updatedAt"`
 }
 
@@ -74,6 +88,7 @@ type idTokenClaims struct {
 	Subject       string             `json:"sub"`
 	Email         string             `json:"email"`
 	Name          string             `json:"name"`
+	ExpiresAt     int64              `json:"exp"`
 	OpenAIAuth    openAIAuthClaims   `json:"https://api.openai.com/auth"`
 	OpenAIProfile openAIProfileClaim `json:"https://api.openai.com/profile"`
 }
@@ -345,10 +360,7 @@ func buildAccountFromToken(token oauthTokenResponse) (accountRecord, error) {
 		accessClaims, _ = parseIDTokenClaims(token.AccessToken)
 	}
 
-	expiresAt := ""
-	if token.ExpiresIn > 0 {
-		expiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second).UTC().Format(time.RFC3339)
-	}
+	expiresAt := tokenExpiresAt(accessClaims, claims, token.ExpiresIn)
 	email := claims.Email
 	if email == "" {
 		email = claims.OpenAIProfile.Email
@@ -390,6 +402,20 @@ func firstNonEmpty(values ...string) string {
 		if trimmed != "" {
 			return trimmed
 		}
+	}
+	return ""
+}
+
+// tokenExpiresAt 优先使用 access_token 的 JWT exp，缺失时回退到 id_token exp，再缺失才使用 expires_in 推算。
+func tokenExpiresAt(accessClaims idTokenClaims, idClaims idTokenClaims, expiresIn int64) string {
+	if accessClaims.ExpiresAt > 0 {
+		return time.Unix(accessClaims.ExpiresAt, 0).UTC().Format(time.RFC3339)
+	}
+	if idClaims.ExpiresAt > 0 {
+		return time.Unix(idClaims.ExpiresAt, 0).UTC().Format(time.RFC3339)
+	}
+	if expiresIn > 0 {
+		return time.Now().Add(time.Duration(expiresIn) * time.Second).UTC().Format(time.RFC3339)
 	}
 	return ""
 }
