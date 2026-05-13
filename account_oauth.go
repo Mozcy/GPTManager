@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
+	"html/template"
 	"io"
 	"net"
 	"net/http"
@@ -428,12 +428,215 @@ func randomURLString(byteCount int) (string, error) {
 // writeOAuthCallbackPage 输出浏览器回调结果页面。
 func writeOAuthCallbackPage(w http.ResponseWriter, title string, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = fmt.Fprintf(w, `<!doctype html>
-<html lang="zh-CN">
-<head><meta charset="utf-8"><title>%s</title></head>
-<body style="font-family: system-ui, sans-serif; padding: 32px;">
-<h2>%s</h2>
-<p>%s</p>
-</body>
-</html>`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(message))
+
+	statusClass := "success"
+	statusLabel := "Authentication complete"
+	leadText := "You are now signed in to GPTProxy."
+	if strings.Contains(title, "失败") {
+		statusClass = "error"
+		statusLabel = "Authentication failed"
+		leadText = "GPTProxy could not complete sign in."
+	}
+
+	_ = oauthCallbackPageTemplate.Execute(w, oauthCallbackPageData{
+		Title:       title,
+		Message:     message,
+		StatusClass: statusClass,
+		StatusLabel: statusLabel,
+		LeadText:    leadText,
+	})
 }
+
+type oauthCallbackPageData struct {
+	Title       string
+	Message     string
+	StatusClass string
+	StatusLabel string
+	LeadText    string
+}
+
+var oauthCallbackPageTemplate = template.Must(template.New("oauth-callback").Parse(oauthCallbackPageHTML))
+
+const oauthCallbackPageHTML = `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+
+<style>
+:root {
+	color-scheme: dark;
+	--bg: #0f172a;
+	--panel: rgba(15, 23, 42, .78);
+	--panel-border: rgba(148, 163, 184, .22);
+	--text: #f8fafc;
+	--muted: #94a3b8;
+	--soft: #1e293b;
+	--success: #22c55e;
+	--success-bg: rgba(34, 197, 94, .14);
+	--error: #ef4444;
+	--error-bg: rgba(239, 68, 68, .14);
+	--accent: #38bdf8;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	min-height: 100vh;
+	margin: 0;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+	background:
+		radial-gradient(circle at 20% 20%, rgba(56, 189, 248, .18), transparent 32%),
+		radial-gradient(circle at 80% 10%, rgba(34, 197, 94, .12), transparent 28%),
+		linear-gradient(135deg, #020617, #0f172a 48%, #111827);
+	color: var(--text);
+	font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+.shell {
+	width: min(520px, 100%);
+	padding: 34px;
+	border: 1px solid var(--panel-border);
+	border-radius: 24px;
+	background: var(--panel);
+	box-shadow:
+		0 30px 90px rgba(0, 0, 0, .45),
+		inset 0 1px 0 rgba(255, 255, 255, .06);
+	backdrop-filter: blur(18px);
+}
+
+.brand {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 30px;
+}
+
+.mark {
+	width: 42px;
+	height: 42px;
+	display: grid;
+	place-items: center;
+	border-radius: 14px;
+	background: linear-gradient(135deg, #38bdf8, #2563eb);
+	color: white;
+	font-weight: 800;
+	letter-spacing: -.04em;
+	box-shadow: 0 14px 28px rgba(37, 99, 235, .28);
+}
+
+.brand-name {
+	font-size: 16px;
+	font-weight: 700;
+	letter-spacing: -.01em;
+}
+
+.brand-sub {
+	margin-top: 2px;
+	color: var(--muted);
+	font-size: 13px;
+}
+
+.status {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 18px;
+	padding: 7px 11px;
+	border-radius: 999px;
+	background: var(--success-bg);
+	color: var(--success);
+	font-size: 13px;
+	font-weight: 700;
+}
+
+.error .status {
+	background: var(--error-bg);
+	color: var(--error);
+}
+
+.dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: currentColor;
+	box-shadow: 0 0 0 5px currentColor;
+	opacity: .85;
+}
+
+h1 {
+	margin: 0;
+	font-size: clamp(26px, 5vw, 36px);
+	line-height: 1.16;
+	font-weight: 800;
+	letter-spacing: -.04em;
+}
+
+.lead {
+	margin-top: 14px;
+	color: #cbd5e1;
+	font-size: 16px;
+	line-height: 1.7;
+}
+
+.detail {
+	margin-top: 22px;
+	padding: 16px 18px;
+	border: 1px solid rgba(148, 163, 184, .18);
+	border-radius: 16px;
+	background: rgba(15, 23, 42, .72);
+	color: #dbeafe;
+	font-size: 14px;
+	line-height: 1.7;
+	word-break: break-word;
+}
+
+.footer {
+	margin-top: 28px;
+	padding-top: 22px;
+	border-top: 1px solid rgba(148, 163, 184, .16);
+	color: var(--muted);
+	font-size: 13px;
+}
+
+@media (max-width: 520px) {
+	.shell {
+		padding: 26px;
+		border-radius: 20px;
+	}
+}
+</style>
+</head>
+
+<body>
+<main class="shell {{.StatusClass}}">
+	<div class="brand">
+		<div class="mark">GP</div>
+		<div>
+			<div class="brand-name">GPTProxy</div>
+			<div class="brand-sub">OAuth Callback</div>
+		</div>
+	</div>
+
+	<div class="status">
+		<span class="dot"></span>
+		<span>{{.StatusLabel}}</span>
+	</div>
+
+	<h1>{{.Title}}</h1>
+
+	<p class="lead">{{.LeadText}}</p>
+
+	<p class="detail">{{.Message}}</p>
+
+	<div class="footer">
+		<span>授权流程已结束，可以关闭此页面并回到 GPTProxy。</span>
+	</div>
+</main>
+</body>
+</html>`

@@ -39,7 +39,7 @@ func (a *App) startup(ctx context.Context) {
 		a.proxyInitErr = err
 		appLogger.Error("初始化代理服务失败", "error", err)
 	} else {
-		//a.startAccountUsageRefresher()
+		a.startAccountUsageRefresher()
 	}
 	startSystemTray(a)
 	appLogger.Info("Wails 启动回调完成")
