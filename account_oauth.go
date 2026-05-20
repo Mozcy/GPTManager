@@ -30,49 +30,49 @@ const (
 // AccountInfo 表示前端展示用的账号信息。
 type AccountInfo struct {
 	// ID 是本地数据库账号记录 ID。
-	ID                    int64           `json:"id"`
+	ID int64 `json:"id"`
 	// Provider 是账号来源，目前固定为 openai。
-	Provider              string          `json:"provider"`
+	Provider string `json:"provider"`
 	// Subject 是 OAuth/JWT 中的 sub，用于唯一标识授权主体。
-	Subject               string          `json:"subject"`
+	Subject string `json:"subject"`
 	// UserID 是 ChatGPT 用户 ID，来自 token claims 中的 chatgpt_user_id/user_id。
-	UserID                string          `json:"userId"`
+	UserID string `json:"userId"`
 	// AccountID 是 ChatGPT 账号 ID，代理请求会写入 ChatGPT-Account-Id 请求头。
-	AccountID             string          `json:"accountId"`
+	AccountID string `json:"accountId"`
 	// Email 是账号邮箱，仅用于展示。
-	Email                 string          `json:"email"`
+	Email string `json:"email"`
 	// Name 是账号昵称，仅用于展示。
-	Name                  string          `json:"name"`
+	Name string `json:"name"`
 	// WorkspaceName 是 ChatGPT workspace/team 名称，来自 /backend-api/accounts 匹配 account_id 的账号项。
-	WorkspaceName         string          `json:"workspaceName"`
+	WorkspaceName string `json:"workspaceName"`
 	// WorkspaceStructure 是 ChatGPT workspace 结构，例如 workspace/personal。
-	WorkspaceStructure    string          `json:"workspaceStructure"`
+	WorkspaceStructure string `json:"workspaceStructure"`
 	// WorkspaceCreatedTime 是 ChatGPT workspace 创建时间。
-	WorkspaceCreatedTime  string          `json:"workspaceCreatedTime"`
+	WorkspaceCreatedTime string `json:"workspaceCreatedTime"`
 	// WorkspaceProcessor 是 ChatGPT workspace 账单处理器。
-	WorkspaceProcessor    string          `json:"workspaceProcessor"`
+	WorkspaceProcessor string `json:"workspaceProcessor"`
 	// WorkspaceRole 是当前用户在 ChatGPT workspace 中的角色。
-	WorkspaceRole         string          `json:"workspaceRole"`
+	WorkspaceRole string `json:"workspaceRole"`
 	// WorkspaceProfilePictureID 是 ChatGPT workspace 头像 ID。
-	WorkspaceProfilePictureID string      `json:"workspaceProfilePictureId"`
+	WorkspaceProfilePictureID string `json:"workspaceProfilePictureId"`
 	// WorkspaceProfilePictureURL 是 ChatGPT workspace 头像 URL。
-	WorkspaceProfilePictureURL string     `json:"workspaceProfilePictureUrl"`
+	WorkspaceProfilePictureURL string `json:"workspaceProfilePictureUrl"`
 	// WorkspaceEligibleForAutoReactivation 表示 workspace 是否支持自动恢复。
 	WorkspaceEligibleForAutoReactivation bool `json:"workspaceEligibleForAutoReactivation"`
 	// Subscription 是 ChatGPT 订阅类型，例如 free/plus/team。
-	Subscription          string          `json:"subscription"`
+	Subscription string `json:"subscription"`
 	// SubscriptionExpiresAt 是 ChatGPT 订阅有效期，来自 token claims 的 chatgpt_subscription_active_until，不等同于 access_token 过期时间。
-	SubscriptionExpiresAt string          `json:"subscriptionExpiresAt"`
+	SubscriptionExpiresAt string `json:"subscriptionExpiresAt"`
 	// PrimaryWindow 是短周期额度窗口信息，当前对应 ChatGPT 5 小时额度。
-	PrimaryWindow         UsageWindowInfo `json:"primaryWindow"`
+	PrimaryWindow UsageWindowInfo `json:"primaryWindow"`
 	// SecondaryWindow 是长周期额度窗口信息，当前对应 ChatGPT 7 天额度。
-	SecondaryWindow       UsageWindowInfo `json:"secondaryWindow"`
+	SecondaryWindow UsageWindowInfo `json:"secondaryWindow"`
 	// Active 表示该账号是否为当前持久化的活动账号。
-	Active                bool            `json:"active"`
+	Active bool `json:"active"`
 	// ExpiresAt 是 access_token JWT payload 中 exp 换算出的 Token 过期时间，缺失时才回退到 OAuth 响应 expires_in。
-	ExpiresAt             string          `json:"expiresAt"`
+	ExpiresAt string `json:"expiresAt"`
 	// UpdatedAt 是本地数据库记录最后更新时间。
-	UpdatedAt             string          `json:"updatedAt"`
+	UpdatedAt string `json:"updatedAt"`
 }
 
 // UsageWindowInfo 表示账号额度窗口的使用情况。
@@ -130,6 +130,7 @@ type oauthCallbackResult struct {
 const (
 	accountAuthSuccessEvent = "account:auth-success"
 	accountAuthErrorEvent   = "account:auth-error"
+	openAIAuthTimeout       = 5 * time.Minute
 )
 
 // StartOpenAIAuth 启动 OpenAI OAuth 授权流程，真正结果会通过 Wails 事件通知前端。
@@ -142,29 +143,26 @@ func (a *App) StartOpenAIAuth() error {
 		return errors.New("Wails 上下文为空")
 	}
 
-	a.authMu.Lock()
-	if a.authRunning {
-		a.authMu.Unlock()
-		return errors.New("已有 OpenAI 授权流程正在进行")
-	}
-	a.authRunning = true
-	a.authMu.Unlock()
+	a.cancelOpenAIAuthInProgress()
 
 	codeVerifier, err := randomURLString(64)
 	if err != nil {
-		a.finishOpenAIAuth()
 		return fmt.Errorf("生成 PKCE code_verifier 失败: %w", err)
 	}
 	state, err := randomURLString(32)
 	if err != nil {
-		a.finishOpenAIAuth()
 		return fmt.Errorf("生成 OAuth state 失败: %w", err)
 	}
 
+	authCtx, cancel := context.WithTimeout(context.Background(), openAIAuthTimeout)
+	done := make(chan struct{})
+	session := a.beginOpenAIAuth(cancel, done)
 	callbackCh := make(chan oauthCallbackResult, 1)
 	server, err := startOAuthCallbackServer(state, callbackCh)
 	if err != nil {
-		a.finishOpenAIAuth()
+		cancel()
+		a.finishOpenAIAuth(session)
+		close(done)
 		appLogger.Error("启动 OAuth 本地回调服务失败", "error", err)
 		return err
 	}
@@ -172,13 +170,14 @@ func (a *App) StartOpenAIAuth() error {
 	authURL := buildOpenAIAuthURL(codeVerifier, state)
 	appLogger.Info("打开 OpenAI OAuth 授权链接")
 	openURLInActiveBrowser(a.ctx, authURL)
-	go a.waitOpenAIAuthCallback(server, callbackCh, codeVerifier)
+	go a.waitOpenAIAuthCallback(authCtx, session, done, server, callbackCh, codeVerifier)
 	return nil
 }
 
 // waitOpenAIAuthCallback 在后台等待 OAuth 回调并通过事件通知前端。
-func (a *App) waitOpenAIAuthCallback(server *http.Server, callbackCh <-chan oauthCallbackResult, codeVerifier string) {
-	defer a.finishOpenAIAuth()
+func (a *App) waitOpenAIAuthCallback(authCtx context.Context, session uint64, done chan struct{}, server *http.Server, callbackCh <-chan oauthCallbackResult, codeVerifier string) {
+	defer close(done)
+	defer a.finishOpenAIAuth(session)
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -189,6 +188,9 @@ func (a *App) waitOpenAIAuthCallback(server *http.Server, callbackCh <-chan oaut
 	var err error
 	select {
 	case result := <-callbackCh:
+		if !a.isCurrentOpenAIAuth(session) {
+			return
+		}
 		if result.Err != nil {
 			err = result.Err
 			break
@@ -197,6 +199,9 @@ func (a *App) waitOpenAIAuthCallback(server *http.Server, callbackCh <-chan oaut
 		token, err := exchangeOpenAIToken(result.Code, codeVerifier, upstreamConfig)
 		if err != nil {
 			break
+		}
+		if !a.isCurrentOpenAIAuth(session) {
+			return
 		}
 		appLogger.Info("OpenAI token 交换完成", "has_access_token", token.AccessToken != "", "has_refresh_token", token.RefreshToken != "", "has_id_token", token.IDToken != "")
 		record, err := buildAccountFromToken(token)
@@ -217,10 +222,18 @@ func (a *App) waitOpenAIAuthCallback(server *http.Server, callbackCh <-chan oaut
 			record.AccountInfo = account
 			a.proxyManager.SetActiveAccount(record)
 		}
-	case <-time.After(5 * time.Minute):
-		err = errors.New("OpenAI OAuth 登录超时")
+	case <-authCtx.Done():
+		if errors.Is(authCtx.Err(), context.DeadlineExceeded) {
+			err = errors.New("OpenAI OAuth 登录超时")
+			break
+		}
+		appLogger.Info("OpenAI OAuth 授权流程已取消", "session", session)
+		return
 	}
 
+	if !a.isCurrentOpenAIAuth(session) {
+		return
+	}
 	if err != nil {
 		appLogger.Error("OpenAI OAuth 登录失败", "error", err)
 		wailsRuntime.EventsEmit(a.ctx, accountAuthErrorEvent, err.Error())
@@ -231,11 +244,67 @@ func (a *App) waitOpenAIAuthCallback(server *http.Server, callbackCh <-chan oaut
 	go a.refreshAllAccountUsage(context.Background())
 }
 
-// finishOpenAIAuth 标记当前 OpenAI OAuth 流程结束。
-func (a *App) finishOpenAIAuth() {
+// cancelOpenAIAuthInProgress 取消尚未完成的 OAuth 流程，通常用于用户再次点击添加账号。
+func (a *App) cancelOpenAIAuthInProgress() {
 	a.authMu.Lock()
-	a.authRunning = false
+	running := a.authRunning
+	cancel := a.authCancel
+	done := a.authDone
 	a.authMu.Unlock()
+
+	if !running || cancel == nil {
+		return
+	}
+
+	appLogger.Info("取消已有 OpenAI OAuth 授权流程，准备重新开始")
+	cancel()
+	if done == nil {
+		return
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		appLogger.Warn("等待旧 OpenAI OAuth 授权流程结束超时，将继续启动新流程")
+	}
+}
+
+// beginOpenAIAuth 标记新的 OpenAI OAuth 流程开始。
+func (a *App) beginOpenAIAuth(cancel context.CancelFunc, done chan struct{}) uint64 {
+	a.authMu.Lock()
+	defer a.authMu.Unlock()
+
+	a.authSession++
+	a.authRunning = true
+	a.authCancel = cancel
+	a.authDone = done
+	return a.authSession
+}
+
+// finishOpenAIAuth 标记当前 OpenAI OAuth 流程结束。
+func (a *App) finishOpenAIAuth(session uint64) {
+	a.authMu.Lock()
+	if session != a.authSession {
+		a.authMu.Unlock()
+		return
+	}
+	cancel := a.authCancel
+	a.authRunning = false
+	a.authCancel = nil
+	a.authDone = nil
+	a.authMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// isCurrentOpenAIAuth 判断指定会话是否仍然是当前 OAuth 流程。
+func (a *App) isCurrentOpenAIAuth(session uint64) bool {
+	a.authMu.Lock()
+	defer a.authMu.Unlock()
+
+	return a.authRunning && session == a.authSession
 }
 
 // buildOpenAIAuthURL 生成 OpenAI OAuth 授权链接。

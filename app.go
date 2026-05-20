@@ -19,6 +19,9 @@ type App struct {
 	proxyInitErr error
 	authMu       sync.Mutex
 	authRunning  bool
+	authCancel   context.CancelFunc
+	authDone     chan struct{}
+	authSession  uint64
 	usageCancel  context.CancelFunc
 	usageWG      sync.WaitGroup
 	usageMu      sync.Mutex
