@@ -24,7 +24,7 @@ const (
 	openAITokenEndpoint = "https://auth.openai.com/oauth/token"
 	openAIClientID      = "app_EMoamEEZ73f0CkXaXp7hrann"
 	openAIRedirectURI   = "http://localhost:1455/auth/callback"
-	openAIScope         = "openid profile email offline_access"
+	openAIScope         = "openid profile email offline_access api.connectors.read api.connectors.invoke"
 )
 
 // AccountInfo 表示前端展示用的账号信息。
@@ -174,6 +174,11 @@ func (a *App) StartOpenAIAuth() error {
 	return nil
 }
 
+// CancelOpenAIAuth 取消当前尚未完成的 OpenAI OAuth 授权流程。
+func (a *App) CancelOpenAIAuth() {
+	a.cancelOpenAIAuthInProgress()
+}
+
 // waitOpenAIAuthCallback 在后台等待 OAuth 回调并通过事件通知前端。
 func (a *App) waitOpenAIAuthCallback(authCtx context.Context, session uint64, done chan struct{}, server *http.Server, callbackCh <-chan oauthCallbackResult, codeVerifier string) {
 	defer close(done)
@@ -313,14 +318,17 @@ func buildOpenAIAuthURL(codeVerifier string, state string) string {
 	codeChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
 
 	values := url.Values{}
+	values.Set("response_type", "code")
 	values.Set("client_id", openAIClientID)
 	values.Set("redirect_uri", openAIRedirectURI)
-	values.Set("response_type", "code")
 	values.Set("scope", openAIScope)
-	values.Set("state", state)
 	values.Set("code_challenge", codeChallenge)
 	values.Set("code_challenge_method", "S256")
-	return openAIAuthEndpoint + "?" + values.Encode()
+	values.Set("id_token_add_organizations", "true")
+	values.Set("codex_cli_simplified_flow", "true")
+	values.Set("state", state)
+	values.Set("originator", "Codex Desktop")
+	return openAIAuthEndpoint + "?" + strings.ReplaceAll(values.Encode(), "+", "%20")
 }
 
 // startOAuthCallbackServer 启动临时本地 HTTP 服务捕获 OAuth 回调。
