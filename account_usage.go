@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -19,15 +21,32 @@ const (
 	accountWorkspaceEndpoint    = "https://chatgpt.com/backend-api/accounts"
 	accountUsageUpdatedEvent    = "account:usage-updated"
 	accountUsageErrorEvent      = "account:usage-error"
-	accountUsageUserAgent       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
 	accountUsageRefreshInterval = 15 * time.Minute
 	accountUsageRefreshCooldown = 2 * time.Minute
+	accountUsageMaxConcurrency  = 2
 )
+
+var accountUsageUserAgents = []string{
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+}
 
 // AccountUsageError 表示单个账号额度刷新失败事件。
 type AccountUsageError struct {
 	AccountID string `json:"accountId"`
 	Message   string `json:"message"`
+}
+
+type accountUsageJob struct {
+	Index  int
+	Record accountRecord
+}
+
+type accountUsageResult struct {
+	Record  accountRecord
+	Updated AccountInfo
+	Err     error
 }
 
 type accountUsageResponse struct {
@@ -109,7 +128,7 @@ func (a *App) stopAccountUsageRefresher() {
 	a.usageWG.Wait()
 }
 
-// refreshAllAccountUsage 刷新所有账号额度，逐个账号更新后推送事件给前端。
+// refreshAllAccountUsage 刷新所有账号额度，使用小并发 worker 池逐个推送结果给前端。
 func (a *App) refreshAllAccountUsage(ctx context.Context) error {
 	if err := a.ensureProxyService(); err != nil {
 		appLogger.Warn("刷新账号额度失败: 服务未初始化", "error", err)
@@ -145,41 +164,58 @@ func (a *App) refreshAllAccountUsage(ctx context.Context) error {
 	}
 
 	upstreamConfig := a.proxyManager.GetUpstreamConfig()
-	client, closeIdle, err := newAccountUsageClient(upstreamConfig)
-	if err != nil {
-		appLogger.Error("刷新账号额度失败: 创建代理 HTTP 客户端失败", "error", err)
-		return err
-	}
-	defer closeIdle()
+	workerCount := min(accountUsageMaxConcurrency, len(records))
+	jobs := make(chan accountUsageJob)
+	results := make(chan accountUsageResult)
 
-	appLogger.Info("开始刷新账号额度", "count", len(records), "upstream", upstreamConfig.Type+"://"+upstreamConfig.IP+":"+upstreamConfig.Port)
-	for index, record := range records {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		if index > 0 {
-			if !sleepAccountUsageJitter(ctx) {
-				return ctx.Err()
+	appLogger.Info(
+		"开始刷新账号额度",
+		"count", len(records),
+		"workers", workerCount,
+		"upstream", upstreamConfig.Type+"://"+upstreamConfig.IP+":"+upstreamConfig.Port,
+	)
+
+	var wg sync.WaitGroup
+	for workerID := 1; workerID <= workerCount; workerID++ {
+		wg.Add(1)
+		go a.runAccountUsageWorker(ctx, &wg, workerID, upstreamConfig, jobs, results)
+	}
+
+	go func() {
+		defer close(jobs)
+		for index, record := range records {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- accountUsageJob{Index: index, Record: record}:
 			}
 		}
+	}()
 
-		updated, err := a.refreshAccountUsage(ctx, client, record)
-		if err != nil {
-			appLogger.Error("刷新账号额度失败", "error", err, "account_id", record.AccountID, "email", record.Email)
-			a.emitAccountUsageError(record.AccountID, err)
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	for result := range results {
+		if result.Err != nil {
+			appLogger.Error("刷新账号额度失败", "error", result.Err, "account_id", result.Record.AccountID, "email", result.Record.Email)
+			a.emitAccountUsageError(result.Record.AccountID, result.Err)
 			continue
 		}
 		appLogger.Info("账号额度刷新完成",
-			"account_id", updated.AccountID,
-			"email", updated.Email,
-			"primary_used_percent", updated.PrimaryWindow.UsedPercent,
-			"secondary_used_percent", updated.SecondaryWindow.UsedPercent,
+			"account_id", result.Updated.AccountID,
+			"email", result.Updated.Email,
+			"primary_used_percent", result.Updated.PrimaryWindow.UsedPercent,
+			"secondary_used_percent", result.Updated.SecondaryWindow.UsedPercent,
 		)
 		if a.ctx != nil {
-			wailsRuntime.EventsEmit(a.ctx, accountUsageUpdatedEvent, updated)
+			wailsRuntime.EventsEmit(a.ctx, accountUsageUpdatedEvent, result.Updated)
 		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -216,7 +252,50 @@ func newAccountUsageClient(config UpstreamConfig) (*http.Client, func(), error) 
 	return client, transport.CloseIdleConnections, nil
 }
 
-// sleepAccountUsageJitter 在账号之间加入短暂错峰，降低连续请求特征。
+// runAccountUsageWorker 从任务队列中领取账号并刷新额度。
+func (a *App) runAccountUsageWorker(ctx context.Context, wg *sync.WaitGroup, workerID int, upstreamConfig UpstreamConfig, jobs <-chan accountUsageJob, results chan<- accountUsageResult) {
+	defer wg.Done()
+
+	client, closeIdle, err := newAccountUsageClient(upstreamConfig)
+	if err != nil {
+		appLogger.Error("刷新账号额度失败: 创建代理 HTTP 客户端失败", "error", err, "worker", workerID)
+		for job := range jobs {
+			if !sendAccountUsageResult(ctx, results, accountUsageResult{Record: job.Record, Err: err}) {
+				return
+			}
+		}
+		return
+	}
+	defer closeIdle()
+
+	for job := range jobs {
+		if job.Index > 0 && !sleepAccountUsageJitter(ctx) {
+			return
+		}
+
+		userAgent := accountUsageUserAgentForAccount(job.Record)
+		updated, err := a.refreshAccountUsage(ctx, client, job.Record, userAgent)
+		if !sendAccountUsageResult(ctx, results, accountUsageResult{
+			Record:  job.Record,
+			Updated: updated,
+			Err:     err,
+		}) {
+			return
+		}
+	}
+}
+
+// sendAccountUsageResult 发送 worker 结果，支持上下文取消。
+func sendAccountUsageResult(ctx context.Context, results chan<- accountUsageResult, result accountUsageResult) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case results <- result:
+		return true
+	}
+}
+
+// sleepAccountUsageJitter 在账号任务之间加入短暂错峰，降低连续请求特征。
 func sleepAccountUsageJitter(ctx context.Context) bool {
 	delay := time.Duration(2+time.Now().UnixNano()%5) * time.Second
 	select {
@@ -228,7 +307,7 @@ func sleepAccountUsageJitter(ctx context.Context) bool {
 }
 
 // refreshAccountUsage 拉取单个账号额度并更新数据库。
-func (a *App) refreshAccountUsage(ctx context.Context, client *http.Client, record accountRecord) (AccountInfo, error) {
+func (a *App) refreshAccountUsage(ctx context.Context, client *http.Client, record accountRecord, userAgent string) (AccountInfo, error) {
 	if strings.TrimSpace(record.AccountID) == "" {
 		return AccountInfo{}, errors.New("账号 account_id 为空")
 	}
@@ -236,7 +315,7 @@ func (a *App) refreshAccountUsage(ctx context.Context, client *http.Client, reco
 		return AccountInfo{}, errors.New("账号 access_token 为空")
 	}
 
-	usage, err := fetchAccountUsage(ctx, client, record)
+	usage, err := fetchAccountUsage(ctx, client, record, userAgent)
 	if err != nil {
 		return AccountInfo{}, err
 	}
@@ -256,7 +335,7 @@ func (a *App) refreshAccountUsage(ctx context.Context, client *http.Client, reco
 		return AccountInfo{}, err
 	}
 
-	workspace, ok, err := fetchAccountWorkspace(ctx, client, record)
+	workspace, ok, err := fetchAccountWorkspace(ctx, client, record, userAgent)
 	if err != nil {
 		appLogger.Warn("刷新账号工作空间失败", "error", err, "account_id", record.AccountID, "email", record.Email)
 		return updated, nil
@@ -284,8 +363,22 @@ func (w usageWindowResponse) toUsageWindowInfo() UsageWindowInfo {
 	}
 }
 
+// accountUsageUserAgentForAccount 为账号稳定选择一个 User-Agent，避免每次刷新随机变化。
+func accountUsageUserAgentForAccount(record accountRecord) string {
+	if len(accountUsageUserAgents) == 0 {
+		return ""
+	}
+	key := firstNonEmpty(record.AccountID, record.UserID, record.Subject, record.Email)
+	if key == "" {
+		return accountUsageUserAgents[0]
+	}
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(key))
+	return accountUsageUserAgents[int(hash.Sum32())%len(accountUsageUserAgents)]
+}
+
 // fetchAccountUsage 调用 ChatGPT 额度接口获取单个账号额度信息。
-func fetchAccountUsage(ctx context.Context, client *http.Client, record accountRecord) (accountUsageResponse, error) {
+func fetchAccountUsage(ctx context.Context, client *http.Client, record accountRecord, userAgent string) (accountUsageResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, accountUsageEndpoint, nil)
 	if err != nil {
 		return accountUsageResponse{}, err
@@ -293,7 +386,9 @@ func fetchAccountUsage(ctx context.Context, client *http.Client, record accountR
 	req.Header.Set("Authorization", "Bearer "+record.AccessToken)
 	req.Header.Set("ChatGPT-Account-Id", record.AccountID)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", accountUsageUserAgent)
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
+	}
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Origin", "https://chatgpt.com")
@@ -323,7 +418,7 @@ func fetchAccountUsage(ctx context.Context, client *http.Client, record accountR
 }
 
 // fetchAccountWorkspace 调用 ChatGPT accounts 接口并按本地 account_id 匹配工作空间。
-func fetchAccountWorkspace(ctx context.Context, client *http.Client, record accountRecord) (accountWorkspaceInfo, bool, error) {
+func fetchAccountWorkspace(ctx context.Context, client *http.Client, record accountRecord, userAgent string) (accountWorkspaceInfo, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, accountWorkspaceEndpoint, nil)
 	if err != nil {
 		return accountWorkspaceInfo{}, false, err
@@ -333,7 +428,9 @@ func fetchAccountWorkspace(ctx context.Context, client *http.Client, record acco
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Origin", "https://chatgpt.com")
 	req.Header.Set("Referer", "https://chatgpt.com/")
-	req.Header.Set("User-Agent", accountUsageUserAgent)
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
+	}
 	req.Header.Set("Sec-CH-UA", `"Chromium";v="136", "Google Chrome";v="136"`)
 
 	resp, err := client.Do(req)
