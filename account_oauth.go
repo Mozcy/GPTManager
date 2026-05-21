@@ -130,7 +130,6 @@ type oauthCallbackResult struct {
 const (
 	accountAuthSuccessEvent = "account:auth-success"
 	accountAuthErrorEvent   = "account:auth-error"
-	openAIAuthTimeout       = 5 * time.Minute
 )
 
 // StartOpenAIAuth 启动 OpenAI OAuth 授权流程，真正结果会通过 Wails 事件通知前端。
@@ -154,7 +153,7 @@ func (a *App) StartOpenAIAuth() error {
 		return fmt.Errorf("生成 OAuth state 失败: %w", err)
 	}
 
-	authCtx, cancel := context.WithTimeout(context.Background(), openAIAuthTimeout)
+	authCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	session := a.beginOpenAIAuth(cancel, done)
 	callbackCh := make(chan oauthCallbackResult, 1)
@@ -228,10 +227,6 @@ func (a *App) waitOpenAIAuthCallback(authCtx context.Context, session uint64, do
 			a.proxyManager.SetActiveAccount(record)
 		}
 	case <-authCtx.Done():
-		if errors.Is(authCtx.Err(), context.DeadlineExceeded) {
-			err = errors.New("OpenAI OAuth 登录超时")
-			break
-		}
 		appLogger.Info("OpenAI OAuth 授权流程已取消", "session", session)
 		return
 	}
