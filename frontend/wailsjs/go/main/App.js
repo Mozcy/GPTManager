@@ -18,6 +18,14 @@ export function DeleteAccount(arg1) {
   return window['go']['main']['App']['DeleteAccount'](arg1);
 }
 
+export function GetCodexAuthInfo() {
+  return window['go']['main']['App']['GetCodexAuthInfo']();
+}
+
+export function GetEnvironmentConfig() {
+  return window['go']['main']['App']['GetEnvironmentConfig']();
+}
+
 export function GetUpstreamConfig() {
   return window['go']['main']['App']['GetUpstreamConfig']();
 }
@@ -40,6 +48,14 @@ export function RefreshAccountUsage() {
 
 export function SaveUpstreamConfig(arg1) {
   return window['go']['main']['App']['SaveUpstreamConfig'](arg1);
+}
+
+export function ScanCodexAuth() {
+  return window['go']['main']['App']['ScanCodexAuth']();
+}
+
+export function ScanCodexAuthPath() {
+  return window['go']['main']['App']['ScanCodexAuthPath']();
 }
 
 export function ShowWindow() {

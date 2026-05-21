@@ -10,6 +10,10 @@ export function CheckUpstreamStatus():Promise<main.UpstreamStatus>;
 
 export function DeleteAccount(arg1:number):Promise<void>;
 
+export function GetCodexAuthInfo():Promise<main.CodexAuthInfo>;
+
+export function GetEnvironmentConfig():Promise<main.EnvironmentConfig>;
+
 export function GetUpstreamConfig():Promise<main.UpstreamConfig>;
 
 export function Greet(arg1:string):Promise<string>;
@@ -21,6 +25,10 @@ export function QuitApplication():Promise<void>;
 export function RefreshAccountUsage():Promise<void>;
 
 export function SaveUpstreamConfig(arg1:main.UpstreamConfig):Promise<main.UpstreamConfig>;
+
+export function ScanCodexAuth():Promise<main.CodexAuthInfo>;
+
+export function ScanCodexAuthPath():Promise<main.CodexAuthInfo>;
 
 export function ShowWindow():Promise<void>;
 

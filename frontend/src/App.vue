@@ -1,10 +1,12 @@
 <script setup>
 import AccountManager from './components/AccountManager.vue'
+import EnvironmentManager from './components/EnvironmentManager.vue'
 import UpstreamStatusBar from './components/UpstreamStatusBar.vue'
 </script>
 
 <template>
   <main class="app-page">
+    <EnvironmentManager />
     <AccountManager />
     <UpstreamStatusBar />
   </main>

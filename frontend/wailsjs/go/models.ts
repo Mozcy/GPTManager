@@ -90,6 +90,50 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class CodexAuthInfo {
+	    path: string;
+	    accountId: string;
+	    email: string;
+	    subscription: string;
+	    workspaceName: string;
+	    updatedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CodexAuthInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.accountId = source["accountId"];
+	        this.email = source["email"];
+	        this.subscription = source["subscription"];
+	        this.workspaceName = source["workspaceName"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
+	export class EnvironmentConfig {
+	    codexAuthPath: string;
+	    codexAccountId: string;
+	    codexEmail: string;
+	    codexSubscription: string;
+	    codexWorkspaceName: string;
+	    updatedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvironmentConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.codexAuthPath = source["codexAuthPath"];
+	        this.codexAccountId = source["codexAccountId"];
+	        this.codexEmail = source["codexEmail"];
+	        this.codexSubscription = source["codexSubscription"];
+	        this.codexWorkspaceName = source["codexWorkspaceName"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
 	export class UpstreamConfig {
 	    type: string;
 	    ip: string;

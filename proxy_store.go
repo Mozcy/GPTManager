@@ -27,6 +27,26 @@ type UpstreamStatus struct {
 	Message   string `json:"message"`
 }
 
+// EnvironmentConfig 表示本机环境配置。
+type EnvironmentConfig struct {
+	CodexAuthPath      string `json:"codexAuthPath"`
+	CodexAccountID     string `json:"codexAccountId"`
+	CodexEmail         string `json:"codexEmail"`
+	CodexSubscription  string `json:"codexSubscription"`
+	CodexWorkspaceName string `json:"codexWorkspaceName"`
+	UpdatedAt          string `json:"updatedAt"`
+}
+
+// CodexAuthInfo 表示环境管理中展示的 Codex Auth 信息。
+type CodexAuthInfo struct {
+	Path          string `json:"path"`
+	AccountID     string `json:"accountId"`
+	Email         string `json:"email"`
+	Subscription  string `json:"subscription"`
+	WorkspaceName string `json:"workspaceName"`
+	UpdatedAt     string `json:"updatedAt"`
+}
+
 // ProxyStore 负责代理配置和账号信息的 SQLite 持久化。
 type ProxyStore struct {
 	db *sql.DB
@@ -84,6 +104,16 @@ CREATE TABLE IF NOT EXISTS upstream_config (
 	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS environment_config (
+	id INTEGER PRIMARY KEY CHECK (id = 1),
+	codex_auth_path TEXT NOT NULL DEFAULT '',
+	codex_account_id TEXT NOT NULL DEFAULT '',
+	codex_email TEXT NOT NULL DEFAULT '',
+	codex_subscription TEXT NOT NULL DEFAULT '',
+	codex_workspace_name TEXT NOT NULL DEFAULT '',
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS accounts (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	provider TEXT NOT NULL,
@@ -121,7 +151,26 @@ CREATE TABLE IF NOT EXISTS accounts (
 	if err := s.migrateAccountColumns(); err != nil {
 		return err
 	}
+	if err := s.migrateEnvironmentColumns(); err != nil {
+		return err
+	}
 	appLogger.Info("SQLite 表结构检查完成")
+	return nil
+}
+
+// migrateEnvironmentColumns 为旧版本环境表补充新增字段。
+func (s *ProxyStore) migrateEnvironmentColumns() error {
+	migrations := []string{
+		"ALTER TABLE environment_config ADD COLUMN codex_account_id TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE environment_config ADD COLUMN codex_email TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE environment_config ADD COLUMN codex_subscription TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE environment_config ADD COLUMN codex_workspace_name TEXT NOT NULL DEFAULT ''",
+	}
+	for _, migration := range migrations {
+		if _, err := s.db.Exec(migration); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			return fmt.Errorf("迁移环境配置表结构失败: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -294,6 +343,96 @@ ON CONFLICT(id) DO UPDATE SET
 	}
 	appLogger.Info("代理配置已保存数据库", "type", config.Type, "address", config.IP+":"+config.Port)
 	return config, nil
+}
+
+// GetEnvironmentConfig 返回本机环境配置。
+func (s *ProxyStore) GetEnvironmentConfig() (EnvironmentConfig, error) {
+	var config EnvironmentConfig
+	err := s.db.QueryRow(`
+SELECT codex_auth_path, codex_account_id, codex_email, codex_subscription, codex_workspace_name, updated_at
+FROM environment_config
+WHERE id = 1`).
+		Scan(
+			&config.CodexAuthPath,
+			&config.CodexAccountID,
+			&config.CodexEmail,
+			&config.CodexSubscription,
+			&config.CodexWorkspaceName,
+			&config.UpdatedAt,
+		)
+	if errors.Is(err, sql.ErrNoRows) {
+		return EnvironmentConfig{}, nil
+	}
+	if err != nil {
+		return EnvironmentConfig{}, fmt.Errorf("查询环境配置失败: %w", err)
+	}
+	return config, nil
+}
+
+// SaveCodexAuthInfo 保存 Codex auth.json 扫描结果。
+func (s *ProxyStore) SaveCodexAuthInfo(input CodexAuthInfo) (EnvironmentConfig, error) {
+	input.Path = strings.TrimSpace(input.Path)
+	if input.Path == "" {
+		return EnvironmentConfig{}, errors.New("Codex auth.json 路径不能为空")
+	}
+	input.AccountID = strings.TrimSpace(input.AccountID)
+	input.Email = strings.TrimSpace(input.Email)
+	input.Subscription = strings.TrimSpace(input.Subscription)
+	input.WorkspaceName = strings.TrimSpace(input.WorkspaceName)
+	input.UpdatedAt = strings.TrimSpace(input.UpdatedAt)
+
+	row := s.db.QueryRow(`
+INSERT INTO environment_config (
+	id, codex_auth_path, codex_account_id, codex_email, codex_subscription, codex_workspace_name, updated_at
+)
+VALUES (1, ?, ?, ?, ?, ?, CASE WHEN ? <> '' THEN ? ELSE strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime') END)
+ON CONFLICT(id) DO UPDATE SET
+	codex_auth_path = excluded.codex_auth_path,
+	codex_account_id = excluded.codex_account_id,
+	codex_email = excluded.codex_email,
+	codex_subscription = excluded.codex_subscription,
+	codex_workspace_name = excluded.codex_workspace_name,
+	updated_at = excluded.updated_at
+RETURNING codex_auth_path, codex_account_id, codex_email, codex_subscription, codex_workspace_name, updated_at`,
+		input.Path,
+		input.AccountID,
+		input.Email,
+		input.Subscription,
+		input.WorkspaceName,
+		input.UpdatedAt,
+		input.UpdatedAt,
+	)
+
+	var config EnvironmentConfig
+	if err := row.Scan(
+		&config.CodexAuthPath,
+		&config.CodexAccountID,
+		&config.CodexEmail,
+		&config.CodexSubscription,
+		&config.CodexWorkspaceName,
+		&config.UpdatedAt,
+	); err != nil {
+		return EnvironmentConfig{}, fmt.Errorf("保存 Codex auth.json 扫描结果失败: %w", err)
+	}
+	appLogger.Info("Codex auth.json 扫描结果已保存", "path", config.CodexAuthPath, "account_id", config.CodexAccountID, "email", config.CodexEmail)
+	return config, nil
+}
+
+// GetCodexAuthInfo 返回环境管理展示的 Codex Auth 信息。
+func (s *ProxyStore) GetCodexAuthInfo() (CodexAuthInfo, error) {
+	config, err := s.GetEnvironmentConfig()
+	if err != nil {
+		return CodexAuthInfo{}, err
+	}
+	info := CodexAuthInfo{
+		Path:          config.CodexAuthPath,
+		AccountID:     config.CodexAccountID,
+		Email:         config.CodexEmail,
+		Subscription:  config.CodexSubscription,
+		WorkspaceName: config.CodexWorkspaceName,
+		UpdatedAt:     config.UpdatedAt,
+	}
+	return info, nil
 }
 
 // ListAccounts 返回已保存的账号信息，不包含 token 明文。
@@ -631,6 +770,22 @@ func (s *ProxyStore) GetAccountBySubject(provider string, subject string) (Accou
 SELECT id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at
 FROM accounts
 WHERE provider = ? AND subject = ?`, provider, subject)
+	item, err := scanAccountInfo(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AccountInfo{}, errors.New("账号不存在")
+	}
+	if err != nil {
+		return AccountInfo{}, fmt.Errorf("查询账号失败: %w", err)
+	}
+	return item, nil
+}
+
+// GetAccountByAccountID 根据 account_id 查询账号。
+func (s *ProxyStore) GetAccountByAccountID(accountID string) (AccountInfo, error) {
+	row := s.db.QueryRow(`
+SELECT id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at
+FROM accounts
+WHERE account_id = ?`, accountID)
 	item, err := scanAccountInfo(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AccountInfo{}, errors.New("账号不存在")
