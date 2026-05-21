@@ -323,16 +323,22 @@ func (a *App) refreshAccountUsage(ctx context.Context, client *http.Client, reco
 		return AccountInfo{}, fmt.Errorf("额度接口返回的 user_id 与本地账号不一致: local=%s remote=%s", record.UserID, usage.UserID)
 	}
 
+	subscription := strings.ToLower(firstNonEmpty(usage.PlanType, record.Subscription))
 	updated, err := a.proxyStore.UpdateAccountUsage(
 		record.AccountID,
 		usage.UserID,
 		usage.Email,
-		strings.ToLower(usage.PlanType),
+		subscription,
 		usage.RateLimit.PrimaryWindow.toUsageWindowInfo(),
 		usage.RateLimit.SecondaryWindow.toUsageWindowInfo(),
 	)
 	if err != nil {
 		return AccountInfo{}, err
+	}
+
+	if !isTeamSubscription(subscription) {
+		appLogger.Info("刷新账号额度跳过工作空间查询: 非 Team 订阅", "account_id", record.AccountID, "email", record.Email, "subscription", subscription)
+		return updated, nil
 	}
 
 	workspace, ok, err := fetchAccountWorkspace(ctx, client, record, userAgent)

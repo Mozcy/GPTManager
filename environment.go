@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -78,8 +79,12 @@ func (a *App) ScanCodexAuth() (CodexAuthInfo, error) {
 	}
 
 	workspaceName := ""
-	if workspace, ok := a.fetchCodexAuthWorkspace(context.Background(), record); ok {
-		workspaceName = workspace.Name
+	if isTeamSubscription(record.Subscription) {
+		if workspace, ok := a.fetchCodexAuthWorkspace(context.Background(), record); ok {
+			workspaceName = workspace.Name
+		}
+	} else {
+		appLogger.Info("认证扫描跳过工作空间查询: 非 Team 订阅", "account_id", record.AccountID, "email", record.Email, "subscription", record.Subscription)
 	}
 
 	info := codexAuthInfoFromRecord(path, record, workspaceName, fileUpdatedAtText)
@@ -154,6 +159,10 @@ func codexAuthInfoFromRecord(path string, record accountRecord, workspaceName st
 		WorkspaceName: workspaceName,
 		UpdatedAt:     fileUpdatedAt,
 	}
+}
+
+func isTeamSubscription(subscription string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(subscription)), "team")
 }
 
 func codexAuthFileUpdatedAt(path string) (string, bool) {
