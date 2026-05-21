@@ -89,35 +89,35 @@ func (a *App) QuitApplication() {
 	wailsRuntime.Quit(a.ctx)
 }
 
-// GetUpstreamConfig 返回全局二次代理配置。
+// GetUpstreamConfig 返回全局代理配置。
 func (a *App) GetUpstreamConfig() (UpstreamConfig, error) {
 	if err := a.ensureProxyService(); err != nil {
-		appLogger.Error("获取二次代理配置失败: 服务未初始化", "error", err)
+		appLogger.Error("获取代理配置失败: 服务未初始化", "error", err)
 		return UpstreamConfig{}, err
 	}
 	return a.proxyManager.GetUpstreamConfig(), nil
 }
 
-// SaveUpstreamConfig 保存全局二次代理配置。
+// SaveUpstreamConfig 保存全局代理配置。
 func (a *App) SaveUpstreamConfig(input UpstreamConfig) (UpstreamConfig, error) {
 	if err := a.ensureProxyService(); err != nil {
-		appLogger.Error("保存二次代理配置失败: 服务未初始化", "error", err)
+		appLogger.Error("保存代理配置失败: 服务未初始化", "error", err)
 		return UpstreamConfig{}, err
 	}
 	config, err := a.proxyStore.SaveUpstreamConfig(input)
 	if err != nil {
-		appLogger.Error("保存二次代理配置失败", "error", err, "type", input.Type, "ip", input.IP, "port", input.Port)
+		appLogger.Error("保存代理配置失败", "error", err, "type", input.Type, "ip", input.IP, "port", input.Port)
 		return UpstreamConfig{}, err
 	}
 	a.proxyManager.SetUpstreamConfig(config)
-	appLogger.Info("保存二次代理配置成功", "type", config.Type, "address", config.IP+":"+config.Port)
+	appLogger.Info("保存代理配置成功", "type", config.Type, "address", config.IP+":"+config.Port)
 	return config, nil
 }
 
-// CheckUpstreamStatus 检查全局二次代理连接状态。
+// CheckUpstreamStatus 检查全局代理连接状态。
 func (a *App) CheckUpstreamStatus() (UpstreamStatus, error) {
 	if err := a.ensureProxyService(); err != nil {
-		appLogger.Error("检查二次代理失败: 服务未初始化", "error", err)
+		appLogger.Error("检查代理失败: 服务未初始化", "error", err)
 		return UpstreamStatus{}, err
 	}
 	config := a.proxyManager.GetUpstreamConfig()
@@ -126,7 +126,7 @@ func (a *App) CheckUpstreamStatus() (UpstreamStatus, error) {
 	if !status.Connected {
 		level = slog.LevelWarn
 	}
-	appLogger.Log(context.Background(), level, "二次代理状态检查完成",
+	appLogger.Log(context.Background(), level, "代理状态检查完成",
 		"type", config.Type,
 		"address", config.IP+":"+config.Port,
 		"connected", status.Connected,

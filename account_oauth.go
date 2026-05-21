@@ -376,7 +376,7 @@ func startOAuthCallbackServer(expectedState string, callbackCh chan<- oauthCallb
 	return server, nil
 }
 
-// exchangeOpenAIToken 用授权 code 和 PKCE verifier 通过二次代理换取 token。
+// exchangeOpenAIToken 用授权 code 和 PKCE verifier 通过代理换取 token。
 func exchangeOpenAIToken(code string, codeVerifier string, upstreamConfig UpstreamConfig) (oauthTokenResponse, error) {
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
@@ -394,15 +394,15 @@ func exchangeOpenAIToken(code string, codeVerifier string, upstreamConfig Upstre
 
 	upstreamConfig, err = normalizeUpstreamConfig(upstreamConfig)
 	if err != nil {
-		return oauthTokenResponse{}, fmt.Errorf("二次代理配置无效: %w", err)
+		return oauthTokenResponse{}, fmt.Errorf("代理配置无效: %w", err)
 	}
 	transport, err := newUpstreamTransport(upstreamConfig)
 	if err != nil {
-		return oauthTokenResponse{}, fmt.Errorf("创建二次代理 HTTP 客户端失败: %w", err)
+		return oauthTokenResponse{}, fmt.Errorf("创建代理 HTTP 客户端失败: %w", err)
 	}
 	defer transport.CloseIdleConnections()
 
-	appLogger.Info("通过二次代理交换 OpenAI token", "type", upstreamConfig.Type, "address", upstreamConfig.IP+":"+upstreamConfig.Port)
+	appLogger.Info("通过代理交换 OpenAI token", "type", upstreamConfig.Type, "address", upstreamConfig.IP+":"+upstreamConfig.Port)
 	client := &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: transport,

@@ -147,7 +147,7 @@ func (a *App) refreshAllAccountUsage(ctx context.Context) error {
 	upstreamConfig := a.proxyManager.GetUpstreamConfig()
 	client, closeIdle, err := newAccountUsageClient(upstreamConfig)
 	if err != nil {
-		appLogger.Error("刷新账号额度失败: 创建二次代理 HTTP 客户端失败", "error", err)
+		appLogger.Error("刷新账号额度失败: 创建代理 HTTP 客户端失败", "error", err)
 		return err
 	}
 	defer closeIdle()

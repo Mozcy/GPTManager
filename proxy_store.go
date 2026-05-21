@@ -14,20 +14,20 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// UpstreamConfig 表示全局二次代理配置，账号授权和额度刷新都会使用它作为出口。
+// UpstreamConfig 表示全局代理配置，账号授权和额度刷新都会使用它作为出口。
 type UpstreamConfig struct {
 	Type string `json:"type"`
 	IP   string `json:"ip"`
 	Port string `json:"port"`
 }
 
-// UpstreamStatus 表示二次代理连接检查结果。
+// UpstreamStatus 表示代理连接检查结果。
 type UpstreamStatus struct {
 	Connected bool   `json:"connected"`
 	Message   string `json:"message"`
 }
 
-// ProxyStore 负责二次代理配置和账号信息的 SQLite 持久化。
+// ProxyStore 负责代理配置和账号信息的 SQLite 持久化。
 type ProxyStore struct {
 	db *sql.DB
 }
@@ -73,7 +73,7 @@ func (s *ProxyStore) Close() error {
 	return nil
 }
 
-// initSchema 初始化二次代理和账号表结构。
+// initSchema 初始化代理和账号表结构。
 func (s *ProxyStore) initSchema() error {
 	const schema = `
 CREATE TABLE IF NOT EXISTS upstream_config (
@@ -252,28 +252,28 @@ FROM accounts`); err != nil {
 	return nil
 }
 
-// GetUpstreamConfig 返回全局二次代理配置，未配置时返回默认值。
+// GetUpstreamConfig 返回全局代理配置，未配置时返回默认值。
 func (s *ProxyStore) GetUpstreamConfig() (UpstreamConfig, error) {
 	var config UpstreamConfig
 	err := s.db.QueryRow("SELECT type, ip, port FROM upstream_config WHERE id = 1").
 		Scan(&config.Type, &config.IP, &config.Port)
 	if errors.Is(err, sql.ErrNoRows) {
 		config = defaultUpstreamConfig()
-		appLogger.Info("未找到二次代理配置，使用默认值", "type", config.Type, "address", config.IP+":"+config.Port)
+		appLogger.Info("未找到代理配置，使用默认值", "type", config.Type, "address", config.IP+":"+config.Port)
 		return config, nil
 	}
 	if err != nil {
-		return UpstreamConfig{}, fmt.Errorf("查询二次代理配置失败: %w", err)
+		return UpstreamConfig{}, fmt.Errorf("查询代理配置失败: %w", err)
 	}
 	config, err = normalizeUpstreamConfig(config)
 	if err != nil {
 		return UpstreamConfig{}, err
 	}
-	appLogger.Info("读取二次代理配置完成", "type", config.Type, "address", config.IP+":"+config.Port)
+	appLogger.Info("读取代理配置完成", "type", config.Type, "address", config.IP+":"+config.Port)
 	return config, nil
 }
 
-// SaveUpstreamConfig 保存全局二次代理配置。
+// SaveUpstreamConfig 保存全局代理配置。
 func (s *ProxyStore) SaveUpstreamConfig(input UpstreamConfig) (UpstreamConfig, error) {
 	config, err := normalizeUpstreamConfig(input)
 	if err != nil {
@@ -290,9 +290,9 @@ ON CONFLICT(id) DO UPDATE SET
 	updated_at = CURRENT_TIMESTAMP`,
 		config.Type, config.IP, config.Port)
 	if err != nil {
-		return UpstreamConfig{}, fmt.Errorf("保存二次代理配置失败: %w", err)
+		return UpstreamConfig{}, fmt.Errorf("保存代理配置失败: %w", err)
 	}
-	appLogger.Info("二次代理配置已保存数据库", "type", config.Type, "address", config.IP+":"+config.Port)
+	appLogger.Info("代理配置已保存数据库", "type", config.Type, "address", config.IP+":"+config.Port)
 	return config, nil
 }
 
@@ -763,7 +763,7 @@ func (s *ProxyStore) DeleteAccount(id int64) error {
 	return nil
 }
 
-// defaultUpstreamConfig 返回默认二次代理配置。
+// defaultUpstreamConfig 返回默认代理配置。
 func defaultUpstreamConfig() UpstreamConfig {
 	return UpstreamConfig{
 		Type: "http",
@@ -772,7 +772,7 @@ func defaultUpstreamConfig() UpstreamConfig {
 	}
 }
 
-// normalizeUpstreamConfig 清理并校验全局二次代理配置输入。
+// normalizeUpstreamConfig 清理并校验全局代理配置输入。
 func normalizeUpstreamConfig(input UpstreamConfig) (UpstreamConfig, error) {
 	config := UpstreamConfig{
 		Type: strings.ToLower(strings.TrimSpace(input.Type)),
@@ -784,12 +784,12 @@ func normalizeUpstreamConfig(input UpstreamConfig) (UpstreamConfig, error) {
 	}
 
 	if config.IP == "" {
-		return UpstreamConfig{}, errors.New("二次代理 IP 不能为空")
+		return UpstreamConfig{}, errors.New("代理 IP 不能为空")
 	}
 	if config.Type != "http" && config.Type != "socks5" {
-		return UpstreamConfig{}, errors.New("二次代理协议仅支持 http 或 socks5")
+		return UpstreamConfig{}, errors.New("代理协议仅支持 http 或 socks5")
 	}
-	if err := validatePort(config.Port, "二次代理端口"); err != nil {
+	if err := validatePort(config.Port, "代理端口"); err != nil {
 		return UpstreamConfig{}, err
 	}
 

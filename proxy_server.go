@@ -13,7 +13,7 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-// ProxyManager 保存二次代理配置和账号管理需要的运行时状态。
+// ProxyManager 保存代理配置和账号管理需要的运行时状态。
 type ProxyManager struct {
 	upstreamMu     sync.RWMutex
 	upstreamConfig UpstreamConfig
@@ -33,10 +33,10 @@ func NewProxyManager(store *ProxyStore) *ProxyManager {
 	appLogger.Info("创建代理服务管理器")
 	upstreamConfig, err := store.GetUpstreamConfig()
 	if err != nil {
-		appLogger.Error("加载二次代理缓存失败，使用默认值", "error", err)
+		appLogger.Error("加载代理缓存失败，使用默认值", "error", err)
 		upstreamConfig = defaultUpstreamConfig()
 	}
-	appLogger.Info("二次代理配置已加载到内存", "type", upstreamConfig.Type, "address", upstreamConfig.IP+":"+upstreamConfig.Port)
+	appLogger.Info("代理配置已加载到内存", "type", upstreamConfig.Type, "address", upstreamConfig.IP+":"+upstreamConfig.Port)
 	manager := &ProxyManager{
 		upstreamConfig: upstreamConfig,
 	}
@@ -62,19 +62,19 @@ func (m *ProxyManager) Close() {
 	appLogger.Info("代理运行时状态已清理")
 }
 
-// GetUpstreamConfig 返回当前内存中的二次代理配置快照。
+// GetUpstreamConfig 返回当前内存中的代理配置快照。
 func (m *ProxyManager) GetUpstreamConfig() UpstreamConfig {
 	m.upstreamMu.RLock()
 	defer m.upstreamMu.RUnlock()
 	return m.upstreamConfig
 }
 
-// SetUpstreamConfig 更新内存中的二次代理配置。
+// SetUpstreamConfig 更新内存中的代理配置。
 func (m *ProxyManager) SetUpstreamConfig(config UpstreamConfig) {
 	m.upstreamMu.Lock()
 	m.upstreamConfig = config
 	m.upstreamMu.Unlock()
-	appLogger.Info("二次代理内存缓存已更新", "type", config.Type, "address", config.IP+":"+config.Port)
+	appLogger.Info("代理内存缓存已更新", "type", config.Type, "address", config.IP+":"+config.Port)
 }
 
 // SetActiveAccount 设置当前激活账号。
@@ -100,7 +100,7 @@ func (m *ProxyManager) ClearActiveAccount(id int64) {
 	m.activeMu.Unlock()
 }
 
-// newUpstreamTransport 根据全局二次代理配置创建 HTTP 转发器。
+// newUpstreamTransport 根据全局代理配置创建 HTTP 转发器。
 func newUpstreamTransport(config UpstreamConfig) (*http.Transport, error) {
 	transport := &http.Transport{
 		Proxy:                 nil,
@@ -116,8 +116,8 @@ func newUpstreamTransport(config UpstreamConfig) (*http.Transport, error) {
 	case "socks5":
 		dialer, err := proxy.SOCKS5("tcp", upstreamAddr, nil, proxy.Direct)
 		if err != nil {
-			appLogger.Error("创建 SOCKS5 二次代理失败", "error", err, "address", upstreamAddr)
-			return nil, fmt.Errorf("创建 SOCKS5 二次代理失败: %w", err)
+			appLogger.Error("创建 SOCKS5 代理失败", "error", err, "address", upstreamAddr)
+			return nil, fmt.Errorf("创建 SOCKS5 代理失败: %w", err)
 		}
 		transport.DialContext = func(ctx context.Context, network string, address string) (net.Conn, error) {
 			type result struct {
@@ -137,13 +137,13 @@ func newUpstreamTransport(config UpstreamConfig) (*http.Transport, error) {
 			}
 		}
 	default:
-		return nil, errors.New("二次代理协议仅支持 http 或 socks5")
+		return nil, errors.New("代理协议仅支持 http 或 socks5")
 	}
 
 	return transport, nil
 }
 
-// CheckUpstreamStatus 检查全局二次代理是否可以建立本地 TCP 连接。
+// CheckUpstreamStatus 检查全局代理是否可以建立本地 TCP 连接。
 func CheckUpstreamStatus(config UpstreamConfig) UpstreamStatus {
 	config, err := normalizeUpstreamConfig(config)
 	if err != nil {
@@ -151,13 +151,13 @@ func CheckUpstreamStatus(config UpstreamConfig) UpstreamStatus {
 	}
 
 	address := net.JoinHostPort(config.IP, config.Port)
-	appLogger.Info("检查二次代理 TCP 连通性", "type", config.Type, "address", address)
+	appLogger.Info("检查代理 TCP 连通性", "type", config.Type, "address", address)
 	conn, err := net.DialTimeout("tcp", address, 3*time.Second)
 	if err != nil {
-		appLogger.Warn("二次代理 TCP 连通性检查失败", "error", err, "type", config.Type, "address", address)
+		appLogger.Warn("代理 TCP 连通性检查失败", "error", err, "type", config.Type, "address", address)
 		return UpstreamStatus{Connected: false, Message: err.Error()}
 	}
 	_ = conn.Close()
-	appLogger.Info("二次代理 TCP 连通性检查成功", "type", config.Type, "address", address)
+	appLogger.Info("代理 TCP 连通性检查成功", "type", config.Type, "address", address)
 	return UpstreamStatus{Connected: true, Message: "已连接"}
 }
