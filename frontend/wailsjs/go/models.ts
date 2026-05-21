@@ -97,6 +97,12 @@ export namespace main {
 	    subscription: string;
 	    workspaceName: string;
 	    updatedAt: string;
+	    authMode: string;
+	    lastRefresh: string;
+	    accessToken: string;
+	    idToken: string;
+	    refreshToken: string;
+	    tokenType: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CodexAuthInfo(source);
@@ -110,6 +116,12 @@ export namespace main {
 	        this.subscription = source["subscription"];
 	        this.workspaceName = source["workspaceName"];
 	        this.updatedAt = source["updatedAt"];
+	        this.authMode = source["authMode"];
+	        this.lastRefresh = source["lastRefresh"];
+	        this.accessToken = source["accessToken"];
+	        this.idToken = source["idToken"];
+	        this.refreshToken = source["refreshToken"];
+	        this.tokenType = source["tokenType"];
 	    }
 	}
 	export class EnvironmentConfig {

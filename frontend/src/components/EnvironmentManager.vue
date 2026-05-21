@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { CopyDocument, QuestionFilled } from '@element-plus/icons-vue'
 import {
   GetCodexAuthInfo,
   ScanCodexAuth,
@@ -55,6 +56,36 @@ function getSubscriptionType(value) {
   if (normalized.includes('free')) return 'free'
   return 'unknown'
 }
+
+function formatToken(value) {
+  return value || '-'
+}
+
+async function copyText(value, label) {
+  if (!value) {
+    ElMessage.warning(`${label}为空，无法复制`)
+    return
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = value
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
+    ElMessage.success(`${label}已复制`)
+  } catch (error) {
+    ElMessage.error(`${label}复制失败`)
+  }
+}
 </script>
 
 <template>
@@ -97,6 +128,53 @@ function getSubscriptionType(value) {
           </template>
         </el-table-column>
         <el-table-column prop="updatedAt" label="文件更新时间" min-width="125" show-overflow-tooltip />
+        <el-table-column label="操作" width="72" align="center">
+          <template #default="{ row }">
+            <div class="operation-actions">
+              <el-popover trigger="click" placement="left" width="400" popper-class="codex-auth-detail-popover">
+                <template #reference>
+                  <el-button class="icon-action info" size="small" text :icon="QuestionFilled" />
+                </template>
+                <div class="codex-auth-detail">
+                  <div class="detail-title">基础信息</div>
+                  <div class="detail-grid">
+                    <span>路径</span><strong>{{ displayValue(row.path) }}</strong>
+                    <span>Account ID</span><strong>{{ displayValue(row.accountId) }}</strong>
+                    <span>邮箱</span><strong>{{ displayValue(row.email) }}</strong>
+                    <span>订阅</span><strong>{{ displayValue(row.subscription) }}</strong>
+                    <span>工作空间</span><strong>{{ displayValue(row.workspaceName) }}</strong>
+                    <span>文件更新时间</span><strong>{{ displayValue(row.updatedAt) }}</strong>
+                    <span>Auth Mode</span><strong>{{ displayValue(row.authMode) }}</strong>
+                    <span>Last Refresh</span><strong>{{ displayValue(row.lastRefresh) }}</strong>
+                    <span>Token Type</span><strong>{{ displayValue(row.tokenType) }}</strong>
+                  </div>
+
+                  <div class="detail-title secondary">认证信息</div>
+                  <div class="detail-grid token-grid">
+                    <span>access_token</span>
+                    <div class="token-value">
+                      <code>{{ formatToken(row.accessToken) }}</code>
+                      <el-button class="icon-action copy" size="small" text :icon="CopyDocument" title="复制 access_token"
+                        @click="copyText(row.accessToken, 'access_token')" />
+                    </div>
+                    <span>id_token</span>
+                    <div class="token-value">
+                      <code>{{ formatToken(row.idToken) }}</code>
+                      <el-button class="icon-action copy" size="small" text :icon="CopyDocument" title="复制 id_token"
+                        @click="copyText(row.idToken, 'id_token')" />
+                    </div>
+                    <span>refresh_token</span>
+                    <div class="token-value">
+                      <code>{{ formatToken(row.refreshToken) }}</code>
+                      <el-button class="icon-action copy" size="small" text :icon="CopyDocument" title="复制 refresh_token"
+                        @click="copyText(row.refreshToken, 'refresh_token')" />
+                    </div>
+                  </div>
+                </div>
+              </el-popover>
+            </div>
+          </template>
+        </el-table-column>
       </el-table>
     </section>
   </el-card>
@@ -162,6 +240,17 @@ function getSubscriptionType(value) {
   --el-table-border-color: #32475b;
 }
 
+.operation-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.operation-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+
 .subscription-tag {
   min-width: 48px;
   border-radius: 5px;
@@ -186,6 +275,143 @@ function getSubscriptionType(value) {
   border-color: rgba(148, 163, 184, 0.36);
   background: rgba(96, 113, 132, 0.16);
   color: #b6c3d1;
+}
+
+.icon-action {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: #b6c3d1;
+  --el-button-hover-bg-color: #1b2636;
+  --el-button-active-bg-color: #1b2636;
+  --el-button-disabled-bg-color: transparent;
+}
+
+.icon-action:hover,
+.icon-action:focus {
+  background: #2d3644 !important;
+}
+
+.icon-action.info,
+.icon-action.copy {
+  color: #9bd0ff;
+  --el-button-hover-text-color: #ffffff;
+  --el-button-active-text-color: #ffffff;
+}
+
+.icon-action.info:hover,
+.icon-action.info:focus,
+.icon-action.copy:hover,
+.icon-action.copy:focus {
+  color: #ffffff;
+  background: #1b2636;
+}
+
+:global(.codex-auth-detail-popover) {
+  border: 1px solid #32475b !important;
+  background: #243447 !important;
+  color: #e8eef5 !important;
+}
+
+:global(.codex-auth-detail-popover .el-popper__arrow::before) {
+  border-color: #32475b !important;
+  background: #243447 !important;
+}
+
+.codex-auth-detail {
+  max-height: min(600px, 70vh);
+  overflow: auto;
+  padding-right: 2px;
+  scrollbar-color: #4f6680 #1f2f3f;
+  scrollbar-width: thin;
+}
+
+.codex-auth-detail::-webkit-scrollbar {
+  width: 8px;
+}
+
+.codex-auth-detail::-webkit-scrollbar-track {
+  background: #1f2f3f;
+  border-radius: 999px;
+}
+
+.codex-auth-detail::-webkit-scrollbar-thumb {
+  background: #4f6680;
+  border-radius: 999px;
+}
+
+.codex-auth-detail::-webkit-scrollbar-thumb:hover {
+  background: #66809b;
+}
+
+.detail-title {
+  margin-bottom: 10px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.detail-title.secondary {
+  margin-top: 16px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 8px 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #32475b;
+}
+
+.detail-grid:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.detail-grid span {
+  color: #94a8bd;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.detail-grid strong,
+.detail-grid code {
+  min-width: 0;
+  color: #e8eef5;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.detail-grid code {
+  padding: 6px 8px;
+  border: 1px solid #32475b;
+  border-radius: 5px;
+  background: #1f2f3f;
+  font-family: Consolas, 'Courier New', monospace;
+  white-space: pre-wrap;
+}
+
+.token-value {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.token-grid > span {
+  align-self: center;
+}
+
+.token-value code {
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 :deep(.environment-table .el-table__empty-text) {

@@ -12,7 +12,9 @@ import (
 )
 
 type codexAuthFile struct {
-	Tokens codexAuthTokens `json:"tokens"`
+	AuthMode    string          `json:"auth_mode"`
+	LastRefresh string          `json:"last_refresh"`
+	Tokens      codexAuthTokens `json:"tokens"`
 }
 
 type codexAuthTokens struct {
@@ -45,7 +47,7 @@ func (a *App) GetCodexAuthInfo() (CodexAuthInfo, error) {
 	if updatedAt, ok := codexAuthFileUpdatedAt(info.Path); ok {
 		info.UpdatedAt = updatedAt
 	}
-	return info, nil
+	return a.withCodexAuthFileDetails(info), nil
 }
 
 // ScanCodexAuth 扫描默认 Codex auth.json，解析认证信息后写入环境配置。
@@ -88,6 +90,7 @@ func (a *App) ScanCodexAuth() (CodexAuthInfo, error) {
 	}
 
 	info := codexAuthInfoFromRecord(path, record, workspaceName, fileUpdatedAtText)
+	info = codexAuthInfoWithFileDetails(info, authFile)
 	if _, err := a.proxyStore.SaveCodexAuthInfo(info); err != nil {
 		appLogger.Error("保存 Codex auth.json 扫描结果失败", "error", err, "path", path, "account_id", record.AccountID)
 		return CodexAuthInfo{}, err
@@ -159,6 +162,28 @@ func codexAuthInfoFromRecord(path string, record accountRecord, workspaceName st
 		WorkspaceName: workspaceName,
 		UpdatedAt:     fileUpdatedAt,
 	}
+}
+
+func (a *App) withCodexAuthFileDetails(info CodexAuthInfo) CodexAuthInfo {
+	if strings.TrimSpace(info.Path) == "" {
+		return info
+	}
+	authFile, _, err := readCodexAuthFile(info.Path)
+	if err != nil {
+		appLogger.Warn("读取 Codex auth.json 详情失败", "error", err, "path", info.Path)
+		return info
+	}
+	return codexAuthInfoWithFileDetails(info, authFile)
+}
+
+func codexAuthInfoWithFileDetails(info CodexAuthInfo, authFile codexAuthFile) CodexAuthInfo {
+	info.AuthMode = authFile.AuthMode
+	info.LastRefresh = authFile.LastRefresh
+	info.AccessToken = authFile.Tokens.AccessToken
+	info.IDToken = authFile.Tokens.IDToken
+	info.RefreshToken = authFile.Tokens.RefreshToken
+	info.TokenType = firstNonEmpty(authFile.Tokens.TokenType, "Bearer")
+	return info
 }
 
 func isTeamSubscription(subscription string) bool {

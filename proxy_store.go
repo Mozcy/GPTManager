@@ -45,6 +45,12 @@ type CodexAuthInfo struct {
 	Subscription  string `json:"subscription"`
 	WorkspaceName string `json:"workspaceName"`
 	UpdatedAt     string `json:"updatedAt"`
+	AuthMode      string `json:"authMode"`
+	LastRefresh   string `json:"lastRefresh"`
+	AccessToken   string `json:"accessToken"`
+	IDToken       string `json:"idToken"`
+	RefreshToken  string `json:"refreshToken"`
+	TokenType     string `json:"tokenType"`
 }
 
 // ProxyStore 负责代理配置和账号信息的 SQLite 持久化。

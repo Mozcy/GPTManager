@@ -310,7 +310,7 @@ function formatUsageSeconds(value) {
         <template #default="{ row }">
           <div class="operation-actions">
             <el-button class="icon-action danger" size="small" text :icon="Delete" @click="deleteAccount(row)" />
-            <el-popover trigger="click" placement="left" width="440" popper-class="account-detail-popover">
+            <el-popover trigger="click" placement="left" width="400" popper-class="account-detail-popover">
               <template #reference>
                 <el-button class="icon-action info" size="small" text :icon="QuestionFilled" />
               </template>
@@ -579,7 +579,7 @@ function formatUsageSeconds(value) {
 
 .detail-grid {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: 60px minmax(0, 1fr);
   gap: 8px 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid #32475b;
