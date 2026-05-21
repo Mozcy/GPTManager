@@ -89,74 +89,6 @@ func (a *App) QuitApplication() {
 	wailsRuntime.Quit(a.ctx)
 }
 
-// ListProxies 返回全部代理配置。
-func (a *App) ListProxies() ([]ProxyConfig, error) {
-	if err := a.ensureProxyService(); err != nil {
-		appLogger.Error("查询代理列表失败: 服务未初始化", "error", err)
-		return nil, err
-	}
-	return a.proxyStore.ListProxies()
-}
-
-// CreateProxy 创建一条新的本地代理配置。
-func (a *App) CreateProxy(input ProxyConfig) (ProxyConfig, error) {
-	if err := a.ensureProxyService(); err != nil {
-		appLogger.Error("创建代理失败: 服务未初始化", "error", err)
-		return ProxyConfig{}, err
-	}
-	item, err := a.proxyStore.CreateProxy(input)
-	if err != nil {
-		appLogger.Error("创建代理失败", "error", err, "ip", input.IP, "port", input.Port)
-		return ProxyConfig{}, err
-	}
-	appLogger.Info("创建代理成功", "id", item.ID, "listen", item.IP+":"+item.Port)
-	return item, nil
-}
-
-// UpdateProxy 更新一条未启用的本地代理配置。
-func (a *App) UpdateProxy(input ProxyConfig) (ProxyConfig, error) {
-	if err := a.ensureProxyService(); err != nil {
-		appLogger.Error("更新代理失败: 服务未初始化", "error", err)
-		return ProxyConfig{}, err
-	}
-	item, err := a.proxyStore.UpdateProxy(input)
-	if err != nil {
-		appLogger.Error("更新代理失败", "error", err, "id", input.ID)
-		return ProxyConfig{}, err
-	}
-	appLogger.Info("更新代理成功", "id", item.ID, "listen", item.IP+":"+item.Port)
-	return item, nil
-}
-
-// DeleteProxy 删除一条未启用的本地代理配置。
-func (a *App) DeleteProxy(id int64) error {
-	if err := a.ensureProxyService(); err != nil {
-		appLogger.Error("删除代理失败: 服务未初始化", "error", err, "id", id)
-		return err
-	}
-	if err := a.proxyStore.DeleteProxy(id); err != nil {
-		appLogger.Error("删除代理失败", "error", err, "id", id)
-		return err
-	}
-	appLogger.Info("删除代理成功", "id", id)
-	return nil
-}
-
-// SetProxyEnabled 启动或停止指定代理。
-func (a *App) SetProxyEnabled(id int64, enabled bool) (ProxyConfig, error) {
-	if err := a.ensureProxyService(); err != nil {
-		appLogger.Error("切换代理状态失败: 服务未初始化", "error", err, "id", id, "enabled", enabled)
-		return ProxyConfig{}, err
-	}
-	item, err := a.proxyManager.SetProxyEnabled(id, enabled)
-	if err != nil {
-		appLogger.Error("切换代理状态失败", "error", err, "id", id, "enabled", enabled)
-		return ProxyConfig{}, err
-	}
-	appLogger.Info("切换代理状态成功", "id", id, "enabled", enabled, "listen", item.IP+":"+item.Port)
-	return item, nil
-}
-
 // GetUpstreamConfig 返回全局二次代理配置。
 func (a *App) GetUpstreamConfig() (UpstreamConfig, error) {
 	if err := a.ensureProxyService(); err != nil {
@@ -276,9 +208,6 @@ func (a *App) initProxyService() error {
 	a.proxyStore = store
 	a.proxyManager = manager
 	a.proxyInitErr = nil
-	if err := manager.StartEnabledProxies(); err != nil {
-		appLogger.Warn("启动已保存代理失败", "error", err)
-	}
 	appLogger.Info("初始化代理服务完成")
 	return nil
 }

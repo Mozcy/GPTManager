@@ -6,20 +6,16 @@ export function ActivateAccount(arg1) {
   return window['go']['main']['App']['ActivateAccount'](arg1);
 }
 
+export function CancelOpenAIAuth() {
+  return window['go']['main']['App']['CancelOpenAIAuth']();
+}
+
 export function CheckUpstreamStatus() {
   return window['go']['main']['App']['CheckUpstreamStatus']();
 }
 
-export function CreateProxy(arg1) {
-  return window['go']['main']['App']['CreateProxy'](arg1);
-}
-
 export function DeleteAccount(arg1) {
   return window['go']['main']['App']['DeleteAccount'](arg1);
-}
-
-export function DeleteProxy(arg1) {
-  return window['go']['main']['App']['DeleteProxy'](arg1);
 }
 
 export function GetUpstreamConfig() {
@@ -34,10 +30,6 @@ export function ListAccounts() {
   return window['go']['main']['App']['ListAccounts']();
 }
 
-export function ListProxies() {
-  return window['go']['main']['App']['ListProxies']();
-}
-
 export function QuitApplication() {
   return window['go']['main']['App']['QuitApplication']();
 }
@@ -50,18 +42,10 @@ export function SaveUpstreamConfig(arg1) {
   return window['go']['main']['App']['SaveUpstreamConfig'](arg1);
 }
 
-export function SetProxyEnabled(arg1, arg2) {
-  return window['go']['main']['App']['SetProxyEnabled'](arg1, arg2);
-}
-
 export function ShowWindow() {
   return window['go']['main']['App']['ShowWindow']();
 }
 
 export function StartOpenAIAuth() {
   return window['go']['main']['App']['StartOpenAIAuth']();
-}
-
-export function UpdateProxy(arg1) {
-  return window['go']['main']['App']['UpdateProxy'](arg1);
 }

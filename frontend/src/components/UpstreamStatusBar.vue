@@ -100,7 +100,7 @@ async function saveUpstreamConfig() {
     setSavedUpstream(config)
     syncUpstreamForm()
     upstreamDialogVisible.value = false
-    ElMessage.success('二次代理配置已保存')
+    ElMessage.success('代理配置已保存')
     await checkUpstreamStatus()
   } catch (error) {
     ElMessage.error(error?.message || String(error))
@@ -139,39 +139,38 @@ async function checkUpstreamStatus() {
       </span>
       <span class="upstream-address">{{ upstreamAddress }}</span>
     </div>
-    <el-button class="icon-action settings" size="small" text :icon="Setting" @click="openUpstreamDialog" />
+    <el-button class="icon-action settings" size="small" text :icon="Setting" title="代理配置"
+      @click="openUpstreamDialog" />
   </footer>
 
-  <el-dialog v-model="upstreamDialogVisible" title="二次代理设置" width="420px" :close-on-click-modal="!upstreamLoading"
-    :close-on-press-escape="!upstreamLoading" :show-close="!upstreamLoading">
-    <el-form class="create-form" :model="upstreamForm" label-width="82px" @submit.prevent>
-      <el-form-item label="协议">
-        <el-select v-model="upstreamForm.type" class="form-select" :disabled="upstreamLoading">
-          <el-option v-for="item in upstreamTypes" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="IP">
-        <el-input v-model="upstreamForm.ip" clearable :disabled="upstreamLoading" />
-      </el-form-item>
-      <el-form-item label="端口">
-        <el-input v-model="upstreamForm.port" clearable :disabled="upstreamLoading"
-          @keyup.enter="saveUpstreamConfig" />
-      </el-form-item>
-    </el-form>
+  <div class="upstream-dialog-host">
+    <el-dialog v-model="upstreamDialogVisible" class="upstream-dialog" draggable title="代理设置" width="380"
+      :append-to-body="false" :close-on-click-modal="!upstreamLoading"
+      :close-on-press-escape="!upstreamLoading" :show-close="!upstreamLoading">
+      <el-form class="upstream-form" :model="upstreamForm" label-width="60px" @submit.prevent>
+        <el-form-item label="协议">
+          <el-select v-model="upstreamForm.type" popper-class="upstream-select-popper" :disabled="upstreamLoading"
+            :teleported="false">
+            <el-option v-for="item in upstreamTypes" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="IP">
+          <el-input v-model="upstreamForm.ip" clearable :disabled="upstreamLoading" />
+        </el-form-item>
+        <el-form-item label="端口">
+          <el-input v-model="upstreamForm.port" clearable :disabled="upstreamLoading"
+            @keyup.enter="saveUpstreamConfig" />
+        </el-form-item>
+      </el-form>
 
-    <template #footer>
-      <el-button size="small" :loading="upstreamChecking" :disabled="upstreamLoading" @click="checkUpstreamStatus">
-        检查状态
-      </el-button>
-      <el-button size="small" :disabled="upstreamLoading" @click="upstreamDialogVisible = false">
-        取消
-      </el-button>
-      <el-button size="small" type="primary" :loading="upstreamLoading" :disabled="isUpstreamFormInvalid()"
-        @click="saveUpstreamConfig">
-        保存
-      </el-button>
-    </template>
-  </el-dialog>
+      <template #footer>
+        <el-button type="primary" size="small" :loading="upstreamLoading" :disabled="isUpstreamFormInvalid()"
+          @click="saveUpstreamConfig">
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
+  </div>
 </template>
 
 <style scoped>
@@ -227,7 +226,7 @@ async function checkUpstreamStatus() {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #d9e4ef;
-  font-size: 13px;
+  font-size: 0.9rem;
 }
 
 .icon-action {
@@ -254,57 +253,140 @@ async function checkUpstreamStatus() {
 .icon-action.settings:hover,
 .icon-action.settings:focus {
   color: #ffffff;
-  background: #1b2636;
 }
 
-.create-form {
-  padding: 4px 0;
-}
-
-.create-form :deep(.el-form-item) {
-  margin-bottom: 16px;
-}
-
-.create-form :deep(.el-form-item:last-child) {
-  margin-bottom: 0;
-}
-
-.form-select {
-  width: 100%;
-}
-
-:deep(.el-form-item__label) {
-  color: white;
-}
-
-:deep(.el-dialog) {
-  background: #243447;
+.upstream-dialog-host :deep(.upstream-dialog) {
+  --el-dialog-bg-color: #243447 !important;
+  --el-dialog-title-font-size: 16px;
   border: 1px solid #32475b;
-  border-radius: 8px;
-  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.34);
-  overflow: hidden;
 }
 
-:deep(.el-dialog__title),
-:deep(.el-dialog__body) {
-  color: white;
+.upstream-dialog-host :deep(.upstream-dialog .el-dialog__header) {
+  border-bottom: 1px solid #32475b !important;
 }
 
-:deep(.el-dialog__header) {
-  border-bottom: 1px solid #32475b;
+.upstream-dialog-host :deep(.upstream-dialog .el-dialog__title),
+.upstream-dialog-host :deep(.upstream-dialog .el-dialog__body) {
+  color: #ffffff;
 }
 
-:deep(.el-dialog__body) {
-  padding: 10px 15px;
-}
-
-:deep(.el-dialog__footer) {
-  padding-top: 15px;
+.upstream-dialog-host :deep(.upstream-dialog .el-dialog__footer) {
   border-top: 1px solid #32475b;
 }
 
-:deep(.el-dialog__footer .el-button) {
-  min-width: 64px;
+.upstream-dialog-host :deep(.upstream-dialog .el-form-item__label) {
+  color: #d9e4ef;
+}
+
+.upstream-dialog-host :deep(.upstream-dialog .el-button--primary) {
+  --el-button-bg-color: #2f8ee8;
+  --el-button-border-color: #2f8ee8;
+  --el-button-hover-bg-color: #409eff;
+  --el-button-hover-border-color: #409eff;
+  --el-button-active-bg-color: #1f73c9;
+  --el-button-active-border-color: #1f73c9;
+  --el-button-disabled-bg-color: #2d4054;
+  --el-button-disabled-border-color: #46586d;
+  --el-button-disabled-text-color: #94a8bd;
+}
+
+.upstream-form {
+  margin-top: 10px;
+}
+
+.upstream-dialog-host :deep(.upstream-dialog .el-select),
+.upstream-dialog-host :deep(.upstream-dialog .el-input) {
+  width: 100%;
+}
+
+.upstream-dialog-host :deep(.upstream-dialog .el-select__wrapper) {
+  --el-select-input-color: #ffffff;
+  --el-select-border-color-hover: #64b5ff;
+  --el-select-disabled-border: #32475b;
+  background: #1f2f3f !important;
+  box-shadow: 0 0 0 1px #46586d inset !important;
+}
+
+.upstream-dialog-host :deep(.upstream-dialog .el-select__wrapper.is-hovering),
+.upstream-dialog-host :deep(.upstream-dialog .el-select__wrapper.is-focused) {
+  box-shadow: 0 0 0 1px #64b5ff inset !important;
+}
+
+.upstream-dialog-host :deep(.upstream-dialog .el-select__selected-item),
+.upstream-dialog-host :deep(.upstream-dialog .el-select__placeholder) {
+  color: #ffffff;
+}
+
+.upstream-dialog-host :deep(.upstream-dialog .el-select__wrapper.is-disabled) {
+  background: #1b2636 !important;
+  box-shadow: 0 0 0 1px #32475b inset !important;
+}
+
+.upstream-dialog-host :deep(.upstream-dialog .el-input__wrapper) {
+  --el-input-bg-color: #1f2f3f;
+  --el-input-border-color: #46586d;
+  --el-input-hover-border-color: #64b5ff;
+  --el-input-focus-border-color: #64b5ff;
+  --el-input-text-color: #ffffff;
+  --el-input-placeholder-color: #94a8bd;
+  box-shadow: 0 0 0 1px var(--el-input-border-color) inset;
+}
+
+.upstream-dialog-host :deep(.upstream-dialog .el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px #64b5ff inset;
+}
+
+.upstream-dialog-host :deep(.upstream-dialog .el-input__inner) {
+  color: #ffffff;
+}
+
+.upstream-dialog-host :deep(.upstream-dialog .el-input__suffix),
+.upstream-dialog-host :deep(.upstream-dialog .el-select__caret) {
+  color: #94a8bd;
+}
+
+.upstream-dialog-host :deep(.upstream-dialog .el-input.is-disabled .el-input__wrapper) {
+  background: #1b2636;
+  box-shadow: 0 0 0 1px #32475b inset;
+}
+
+.upstream-dialog-host :deep(.upstream-select-popper.el-popper),
+.upstream-dialog-host :deep(.upstream-select-popper.el-popper.is-light) {
+  background: #243447 !important;
+  border: 1px solid #32475b !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24) !important;
+}
+
+.upstream-dialog-host :deep(.upstream-select-popper .el-popper__arrow::before) {
+  background: #243447 !important;
+  border-color: #32475b !important;
+}
+
+.upstream-dialog-host :deep(.upstream-select-popper .el-select-dropdown),
+.upstream-dialog-host :deep(.upstream-select-popper .el-select-dropdown__wrap),
+.upstream-dialog-host :deep(.upstream-select-popper .el-select-dropdown__list) {
+  background: #243447 !important;
+}
+
+.upstream-dialog-host :deep(.upstream-select-popper .el-select-dropdown__item) {
+  color: #d9e4ef !important;
+  background: transparent !important;
+}
+
+.upstream-dialog-host :deep(.upstream-select-popper .el-select-dropdown__item.is-hovering),
+.upstream-dialog-host :deep(.upstream-select-popper .el-select-dropdown__item:hover) {
+  color: #ffffff !important;
+  background: #2d4054 !important;
+}
+
+.upstream-dialog-host :deep(.upstream-select-popper .el-select-dropdown__item.is-selected) {
+  color: #64b5ff !important;
+  background: #1f2f3f !important;
+}
+
+.upstream-dialog-host :deep(.upstream-select-popper .el-select-dropdown__item.is-disabled) {
+  color: #607184 !important;
+  background: transparent !important;
 }
 
 @media (max-width: 520px) {

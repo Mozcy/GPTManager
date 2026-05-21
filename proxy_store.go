@@ -14,15 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// ProxyConfig 表示一条本地代理监听配置。
-type ProxyConfig struct {
-	ID      int64  `json:"id"`
-	IP      string `json:"ip"`
-	Port    string `json:"port"`
-	Enabled bool   `json:"enabled"`
-}
-
-// UpstreamConfig 表示全局二次代理配置，所有本地代理都会使用它作为出口。
+// UpstreamConfig 表示全局二次代理配置，账号授权和额度刷新都会使用它作为出口。
 type UpstreamConfig struct {
 	Type string `json:"type"`
 	IP   string `json:"ip"`
@@ -35,12 +27,12 @@ type UpstreamStatus struct {
 	Message   string `json:"message"`
 }
 
-// ProxyStore 负责代理配置的 SQLite 持久化。
+// ProxyStore 负责二次代理配置和账号信息的 SQLite 持久化。
 type ProxyStore struct {
 	db *sql.DB
 }
 
-// NewProxyStore 创建代理配置存储，数据库文件位于用户 Local AppData 目录。
+// NewProxyStore 创建配置存储，数据库文件位于用户 Local AppData 目录。
 func NewProxyStore() (*ProxyStore, error) {
 	dataDir, err := appDataDir()
 	if err != nil {
@@ -81,21 +73,9 @@ func (s *ProxyStore) Close() error {
 	return nil
 }
 
-// initSchema 初始化代理、二次代理和账号表结构。
+// initSchema 初始化二次代理和账号表结构。
 func (s *ProxyStore) initSchema() error {
 	const schema = `
-CREATE TABLE IF NOT EXISTS proxies (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	ip TEXT NOT NULL,
-	port TEXT NOT NULL,
-	upstream_type TEXT NOT NULL DEFAULT '',
-	upstream_ip TEXT NOT NULL DEFAULT '',
-	upstream_port TEXT NOT NULL DEFAULT '',
-	enabled INTEGER NOT NULL DEFAULT 0,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS upstream_config (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
 	type TEXT NOT NULL,
@@ -136,7 +116,7 @@ CREATE TABLE IF NOT EXISTS accounts (
 );
 `
 	if _, err := s.db.Exec(schema); err != nil {
-		return fmt.Errorf("初始化代理配置表失败: %w", err)
+		return fmt.Errorf("初始化配置表失败: %w", err)
 	}
 	if err := s.migrateAccountColumns(); err != nil {
 		return err
@@ -270,168 +250,6 @@ FROM accounts`); err != nil {
 	committed = true
 	appLogger.Info("账号唯一键已迁移为 provider+account_id")
 	return nil
-}
-
-// ListProxies 返回全部代理配置。
-func (s *ProxyStore) ListProxies() ([]ProxyConfig, error) {
-	rows, err := s.db.Query(`
-SELECT id, ip, port, enabled
-FROM proxies
-ORDER BY id DESC`)
-	if err != nil {
-		return nil, fmt.Errorf("查询代理配置失败: %w", err)
-	}
-	defer rows.Close()
-
-	var result []ProxyConfig
-	for rows.Next() {
-		var item ProxyConfig
-		var enabled int
-		if err := rows.Scan(&item.ID, &item.IP, &item.Port, &enabled); err != nil {
-			return nil, fmt.Errorf("读取代理配置失败: %w", err)
-		}
-		item.Enabled = enabled == 1
-		result = append(result, item)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("读取代理配置失败: %w", err)
-	}
-
-	appLogger.Info("查询代理配置完成", "count", len(result))
-	return result, nil
-}
-
-// CreateProxy 新增一条代理配置。
-func (s *ProxyStore) CreateProxy(input ProxyConfig) (ProxyConfig, error) {
-	item, err := normalizeProxyConfig(input)
-	if err != nil {
-		return ProxyConfig{}, err
-	}
-
-	result, err := s.db.Exec(`
-INSERT INTO proxies (ip, port, upstream_type, upstream_ip, upstream_port, enabled, updated_at)
-VALUES (?, ?, '', '', '', 0, CURRENT_TIMESTAMP)`,
-		item.IP, item.Port)
-	if err != nil {
-		return ProxyConfig{}, fmt.Errorf("创建代理配置失败: %w", err)
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return ProxyConfig{}, fmt.Errorf("获取代理配置 ID 失败: %w", err)
-	}
-	item.ID = id
-	appLogger.Info("代理配置已写入数据库", "id", item.ID, "listen", item.IP+":"+item.Port)
-	return item, nil
-}
-
-// UpdateProxy 更新一条未启用的代理配置。
-func (s *ProxyStore) UpdateProxy(input ProxyConfig) (ProxyConfig, error) {
-	if input.ID <= 0 {
-		return ProxyConfig{}, errors.New("代理 ID 无效")
-	}
-
-	current, err := s.GetProxy(input.ID)
-	if err != nil {
-		return ProxyConfig{}, err
-	}
-	if current.Enabled {
-		return ProxyConfig{}, errors.New("代理启用中，不能编辑")
-	}
-
-	item, err := normalizeProxyConfig(input)
-	if err != nil {
-		return ProxyConfig{}, err
-	}
-	item.ID = input.ID
-
-	result, err := s.db.Exec(`
-UPDATE proxies
-SET ip = ?, port = ?, updated_at = CURRENT_TIMESTAMP
-WHERE id = ? AND enabled = 0`,
-		item.IP, item.Port, item.ID)
-	if err != nil {
-		return ProxyConfig{}, fmt.Errorf("更新代理配置失败: %w", err)
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return ProxyConfig{}, fmt.Errorf("确认更新结果失败: %w", err)
-	}
-	if affected == 0 {
-		return ProxyConfig{}, errors.New("代理配置不存在或正在启用")
-	}
-
-	appLogger.Info("代理配置已更新数据库", "id", item.ID, "listen", item.IP+":"+item.Port)
-	return item, nil
-}
-
-// DeleteProxy 删除一条未启用的代理配置。
-func (s *ProxyStore) DeleteProxy(id int64) error {
-	result, err := s.db.Exec("DELETE FROM proxies WHERE id = ? AND enabled = 0", id)
-	if err != nil {
-		return fmt.Errorf("删除代理配置失败: %w", err)
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("确认删除结果失败: %w", err)
-	}
-	if affected == 0 {
-		return errors.New("代理配置不存在或正在启用")
-	}
-
-	appLogger.Info("代理配置已从数据库删除", "id", id)
-	return nil
-}
-
-// GetProxy 根据 ID 查询代理配置。
-func (s *ProxyStore) GetProxy(id int64) (ProxyConfig, error) {
-	var item ProxyConfig
-	var enabled int
-	err := s.db.QueryRow(`
-SELECT id, ip, port, enabled
-FROM proxies
-WHERE id = ?`, id).
-		Scan(&item.ID, &item.IP, &item.Port, &enabled)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ProxyConfig{}, errors.New("代理配置不存在")
-	}
-	if err != nil {
-		return ProxyConfig{}, fmt.Errorf("查询代理配置失败: %w", err)
-	}
-
-	item.Enabled = enabled == 1
-	appLogger.Info("查询代理配置完成", "id", item.ID, "listen", item.IP+":"+item.Port, "enabled", item.Enabled)
-	return item, nil
-}
-
-// SetProxyEnabled 更新代理启用状态。
-func (s *ProxyStore) SetProxyEnabled(id int64, enabled bool) (ProxyConfig, error) {
-	value := 0
-	if enabled {
-		value = 1
-	}
-
-	result, err := s.db.Exec(`
-UPDATE proxies
-SET enabled = ?, updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`, value, id)
-	if err != nil {
-		return ProxyConfig{}, fmt.Errorf("更新代理状态失败: %w", err)
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return ProxyConfig{}, fmt.Errorf("确认代理状态失败: %w", err)
-	}
-	if affected == 0 {
-		return ProxyConfig{}, errors.New("代理配置不存在")
-	}
-
-	appLogger.Info("代理启用状态已更新数据库", "id", id, "enabled", enabled)
-	return s.GetProxy(id)
 }
 
 // GetUpstreamConfig 返回全局二次代理配置，未配置时返回默认值。
@@ -952,26 +770,6 @@ func defaultUpstreamConfig() UpstreamConfig {
 		IP:   "127.0.0.1",
 		Port: "1080",
 	}
-}
-
-// normalizeProxyConfig 清理并校验本地代理配置输入。
-func normalizeProxyConfig(input ProxyConfig) (ProxyConfig, error) {
-	item := ProxyConfig{
-		ID:      input.ID,
-		IP:      strings.TrimSpace(input.IP),
-		Port:    strings.TrimSpace(input.Port),
-		Enabled: input.Enabled,
-	}
-
-	if item.IP == "" {
-		return ProxyConfig{}, errors.New("监听 IP 不能为空")
-	}
-	if err := validatePort(item.Port, "监听端口"); err != nil {
-		return ProxyConfig{}, err
-	}
-
-	item.IP = normalizeHost(item.IP)
-	return item, nil
 }
 
 // normalizeUpstreamConfig 清理并校验全局二次代理配置输入。

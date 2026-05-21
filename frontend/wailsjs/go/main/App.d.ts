@@ -4,13 +4,11 @@ import {main} from '../models';
 
 export function ActivateAccount(arg1:number):Promise<main.AccountInfo>;
 
+export function CancelOpenAIAuth():Promise<void>;
+
 export function CheckUpstreamStatus():Promise<main.UpstreamStatus>;
 
-export function CreateProxy(arg1:main.ProxyConfig):Promise<main.ProxyConfig>;
-
 export function DeleteAccount(arg1:number):Promise<void>;
-
-export function DeleteProxy(arg1:number):Promise<void>;
 
 export function GetUpstreamConfig():Promise<main.UpstreamConfig>;
 
@@ -18,18 +16,12 @@ export function Greet(arg1:string):Promise<string>;
 
 export function ListAccounts():Promise<Array<main.AccountInfo>>;
 
-export function ListProxies():Promise<Array<main.ProxyConfig>>;
-
 export function QuitApplication():Promise<void>;
 
 export function RefreshAccountUsage():Promise<void>;
 
 export function SaveUpstreamConfig(arg1:main.UpstreamConfig):Promise<main.UpstreamConfig>;
 
-export function SetProxyEnabled(arg1:number,arg2:boolean):Promise<main.ProxyConfig>;
-
 export function ShowWindow():Promise<void>;
 
 export function StartOpenAIAuth():Promise<void>;
-
-export function UpdateProxy(arg1:main.ProxyConfig):Promise<main.ProxyConfig>;

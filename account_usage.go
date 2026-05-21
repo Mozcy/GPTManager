@@ -48,15 +48,15 @@ type accountWorkspaceResponse struct {
 }
 
 type accountWorkspaceInfo struct {
-	ID                              string `json:"id"`
-	Name                            string `json:"name"`
-	ProfilePictureID                string `json:"profile_picture_id"`
-	ProfilePictureURL               string `json:"profile_picture_url"`
-	Structure                       string `json:"structure"`
-	CreatedTime                     string `json:"created_time"`
-	Processor                       string `json:"processor"`
-	CurrentUserRole                 string `json:"current_user_role"`
-	EligibleForAutoReactivation     bool   `json:"eligible_for_auto_reactivation"`
+	ID                          string `json:"id"`
+	Name                        string `json:"name"`
+	ProfilePictureID            string `json:"profile_picture_id"`
+	ProfilePictureURL           string `json:"profile_picture_url"`
+	Structure                   string `json:"structure"`
+	CreatedTime                 string `json:"created_time"`
+	Processor                   string `json:"processor"`
+	CurrentUserRole             string `json:"current_user_role"`
+	EligibleForAutoReactivation bool   `json:"eligible_for_auto_reactivation"`
 }
 
 type usageWindowResponse struct {

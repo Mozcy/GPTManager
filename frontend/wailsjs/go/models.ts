@@ -90,24 +90,6 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class ProxyConfig {
-	    id: number;
-	    ip: string;
-	    port: string;
-	    enabled: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ProxyConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.ip = source["ip"];
-	        this.port = source["port"];
-	        this.enabled = source["enabled"];
-	    }
-	}
 	export class UpstreamConfig {
 	    type: string;
 	    ip: string;

@@ -231,12 +231,12 @@ function formatUsageSeconds(value) {
           <el-radio v-model="selectedAccountId" class="account-radio" :label="row.id" :disabled="accountActivating" />
         </template>
       </el-table-column>
-      <el-table-column label="account_id" width="310">
+      <el-table-column label="account_id" width="320">
         <template #default="{ row }">
           <span class="proxy-text">{{ row.accountId || '未知' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="邮箱" min-width="220">
+      <el-table-column label="邮箱" width="320">
         <template #default="{ row }">
           <span class="proxy-text">{{ row.email || '未知' }}</span>
         </template>
@@ -251,7 +251,7 @@ function formatUsageSeconds(value) {
           <span class="proxy-text">{{ formatRemainingQuota(row.primaryWindow) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="刷新时间(5h)" width="160">
+      <el-table-column label="刷新时间(5h)" width="165">
         <template #default="{ row }">
           <span class="proxy-text">{{ formatUsageResetTime(row.primaryWindow) }}</span>
         </template>
@@ -261,7 +261,7 @@ function formatUsageSeconds(value) {
           <span class="proxy-text">{{ formatRemainingQuota(row.secondaryWindow) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="刷新时间(7d)" width="160">
+      <el-table-column label="刷新时间(7d)" width="165">
         <template #default="{ row }">
           <span class="proxy-text">{{ formatUsageResetTime(row.secondaryWindow) }}</span>
         </template>
@@ -273,7 +273,7 @@ function formatUsageSeconds(value) {
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="112" align="center">
+      <el-table-column label="操作" width="100" align="center">
         <template #default="{ row }">
           <div class="operation-actions">
             <el-button class="icon-action danger" size="small" text :icon="Delete" @click="deleteAccount(row)" />
