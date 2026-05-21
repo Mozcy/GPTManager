@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	trayWindowClass = "GPTProxyTrayWindow"
-	trayTitle       = "GPTProxy"
+	trayWindowClass = "GPTManagerTrayWindow"
+	trayTitle       = "GPTManager"
 
 	wmClose         = 0x0010
 	wmDestroy       = 0x0002

@@ -68,7 +68,7 @@ func NewProxyStore() (*ProxyStore, error) {
 		return nil, fmt.Errorf("创建数据目录失败: %w", err)
 	}
 
-	dbPath := filepath.Join(dataDir, "gptproxy.db")
+	dbPath := filepath.Join(dataDir, "gptmanager.db")
 	appLogger.Info("打开 SQLite 数据库", "path", dbPath)
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {

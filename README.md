@@ -1,15 +1,16 @@
-# GPTProxy
+# GPTManager
 
-GPTProxy 是一个基于 Wails 构建的桌面账号管理工具，用于管理 OpenAI/ChatGPT 账号授权、账号激活、额度刷新，以及账号请求使用的全局代理。
+GPTManager 是一个基于 Wails 构建的桌面账号管理工具，用于管理 OpenAI/ChatGPT 账号授权、账号激活、额度刷新、Codex Auth 环境信息。
 
 项目由 Go 后端和 Vue 前端组成，配置与账号数据使用 SQLite 持久化到用户本地目录。软件启动后支持驻留系统托盘，关闭窗口时默认隐藏到托盘。
 
 ## 功能特性
 
 - 账号管理：通过 OAuth + PKCE 添加 OpenAI/ChatGPT 账号，并保存账号关键 token。
-- 激活账号切换：在前端选择账号后激活，后端保存当前活动账号。
+- 账号切换：在前端选择账号后激活，后端保存当前活动账号。
 - 代理配置：底部状态栏显示代理地址和连接状态，设置弹窗可修改 HTTP/SOCKS5 代理。
 - 额度刷新：手动刷新账号额度信息，并通过 Wails 事件实时更新前端。
+- 环境管理：扫描 Codex Auth 配置，展示账号、订阅、工作空间和认证详情。
 - SQLite 本地存储：代理配置和账号信息保存在本地数据库。
 - 系统托盘：窗口关闭时隐藏到托盘，托盘菜单支持显示窗口和真正退出。
 - 日志输出：关键账号、授权、代理检查和额度刷新流程会写入日志，便于排查问题。
@@ -52,17 +53,21 @@ http://127.0.0.1:1080
 
 点击账号管理右上角的刷新按钮，后端会拉取账号额度和工作空间信息，并更新账号列表。
 
+### 5. 扫描 Codex Auth
+
+在环境管理中点击认证扫描，软件会读取本机 Codex auth.json，展示账号、邮箱、订阅、工作空间、文件更新时间和认证详情。详情弹窗中的 token 支持快捷复制。
+
 ## 数据存储
 
 数据保存在用户 Local AppData 目录下：
 
 ```plain text
-%LOCALAPPDATA%\GPTProxy
+%LOCALAPPDATA%\GPTManager
 ```
 
 主要文件包括：
 
 ```plain text
-gptproxy.db        SQLite 数据库
+gptmanager.db      SQLite 数据库
 logs/app.log       应用日志
 ```

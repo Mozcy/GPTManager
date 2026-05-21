@@ -15,7 +15,7 @@ func appDataDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(baseDir, "GPTProxy"), nil
+	return filepath.Join(baseDir, "GPTManager"), nil
 }
 
 // initAppLogger 初始化应用日志，日志会写入控制台和本地文件。

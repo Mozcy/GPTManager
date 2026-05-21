@@ -358,7 +358,7 @@ func startOAuthCallbackServer(expectedState string, callbackCh chan<- oauthCallb
 			return
 		}
 
-		writeOAuthCallbackPage(w, "登录成功", "授权已完成，可以回到 GPTProxy。")
+		writeOAuthCallbackPage(w, "登录成功", "授权已完成，可以回到 GPTManager。")
 		callbackCh <- oauthCallbackResult{Code: code, State: state}
 	})
 
@@ -545,11 +545,11 @@ func writeOAuthCallbackPage(w http.ResponseWriter, title string, message string)
 
 	statusClass := "success"
 	statusLabel := "Authentication complete"
-	leadText := "You are now signed in to GPTProxy."
+	leadText := "You are now signed in to GPTManager."
 	if strings.Contains(title, "失败") {
 		statusClass = "error"
 		statusLabel = "Authentication failed"
-		leadText = "GPTProxy could not complete sign in."
+		leadText = "GPTManager could not complete sign in."
 	}
 
 	_ = oauthCallbackPageTemplate.Execute(w, oauthCallbackPageData{
@@ -732,7 +732,7 @@ h1 {
 	<div class="brand">
 		<div class="mark">GP</div>
 		<div>
-			<div class="brand-name">GPTProxy</div>
+			<div class="brand-name">GPTManager</div>
 			<div class="brand-sub">OAuth Callback</div>
 		</div>
 	</div>
@@ -749,7 +749,7 @@ h1 {
 	<p class="detail">{{.Message}}</p>
 
 	<div class="footer">
-		<span>授权流程已结束，可以关闭此页面并回到 GPTProxy。</span>
+		<span>授权流程已结束，可以关闭此页面并回到 GPTManager。</span>
 	</div>
 </main>
 </body>

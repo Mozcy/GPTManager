@@ -1,4 +1,4 @@
-module GPTProxy
+module GPTManager
 
 go 1.25.0
 
