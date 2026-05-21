@@ -1,11 +1,12 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
 import { Delete, QuestionFilled, Refresh } from '@element-plus/icons-vue'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import {
   ActivateAccount,
+  CancelOpenAIAuth,
   DeleteAccount,
   ListAccounts,
   RefreshAccountUsage,
@@ -14,21 +15,30 @@ import {
 
 const accounts = ref([])
 const accountLoading = ref(false)
-const authLoading = ref(false)
+const authStarting = ref(false)
+const authPending = ref(false)
+const authCanceling = ref(false)
 const accountRefreshing = ref(false)
 const accountActivating = ref(false)
 const selectedAccountId = ref(null)
+const authBusy = computed(() => authStarting.value || authCanceling.value)
 
 onMounted(async () => {
   await loadAccounts()
 })
 
 const offAuthSuccess = EventsOn('account:auth-success', async () => {
+  authPending.value = false
+  authStarting.value = false
+  authCanceling.value = false
   await loadAccounts()
   ElMessage.success('账号已添加')
 })
 
 const offAuthError = EventsOn('account:auth-error', (message) => {
+  authPending.value = false
+  authStarting.value = false
+  authCanceling.value = false
   ElMessage.error(message || '账号授权失败')
 })
 
@@ -92,15 +102,38 @@ function syncActiveAccount(account) {
   }))
 }
 
+async function handleAuthButtonClick() {
+  if (authPending.value) {
+    await cancelAddAccount()
+    return
+  }
+  await addAccount()
+}
+
 async function addAccount() {
-  authLoading.value = true
+  authStarting.value = true
   try {
     await StartOpenAIAuth()
+    authPending.value = true
     ElMessage.info('已打开浏览器，请完成授权')
+  } catch (error) {
+    authPending.value = false
+    ElMessage.error(error?.message || String(error))
+  } finally {
+    authStarting.value = false
+  }
+}
+
+async function cancelAddAccount() {
+  authCanceling.value = true
+  try {
+    await CancelOpenAIAuth()
+    authPending.value = false
+    ElMessage.info('已取消添加账号')
   } catch (error) {
     ElMessage.error(error?.message || String(error))
   } finally {
-    authLoading.value = false
+    authCanceling.value = false
   }
 }
 
@@ -212,14 +245,14 @@ function formatUsageSeconds(value) {
         <span>账号管理</span>
         <div class="header-actions">
           <el-button class="icon-action settings" size="small" text :icon="Refresh" :loading="accountRefreshing"
-            :disabled="authLoading || accountActivating" title="刷新账号额度" @click="refreshAccountUsage" />
+            :disabled="authPending || authBusy || accountActivating" title="刷新账号额度" @click="refreshAccountUsage" />
           <el-button type="success" size="small" :loading="accountActivating"
-            :disabled="!selectedAccountId || authLoading || accountRefreshing" @click="activateAccount">
+            :disabled="!selectedAccountId || authPending || authBusy || accountRefreshing" @click="activateAccount">
             激活账号
           </el-button>
-          <el-button type="primary" size="small" :loading="authLoading" :disabled="accountRefreshing || accountActivating"
-            @click="addAccount">
-            添加账号
+          <el-button :type="authPending ? 'danger' : 'primary'" size="small" :loading="authBusy"
+            :disabled="accountRefreshing || accountActivating" @click="handleAuthButtonClick">
+            {{ authPending ? '取消添加' : '添加账号' }}
           </el-button>
         </div>
       </div>
