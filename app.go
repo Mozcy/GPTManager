@@ -159,7 +159,7 @@ func (a *App) RefreshAccountUsage() error {
 	return nil
 }
 
-// ActivateAccount 将指定账号设置为代理流量使用的全局激活账号。
+// ActivateAccount 将指定账号设为本地激活账号，并同步到 Codex auth.json。
 func (a *App) ActivateAccount(id int64) (AccountInfo, error) {
 	if err := a.ensureProxyService(); err != nil {
 		appLogger.Error("激活账号失败: 服务未初始化", "error", err, "id", id)
@@ -171,7 +171,14 @@ func (a *App) ActivateAccount(id int64) (AccountInfo, error) {
 		return AccountInfo{}, err
 	}
 
-	a.proxyManager.SetActiveAccount(record)
+	codexInfo, err := a.syncCodexAuthFromAccount(record)
+	if err != nil {
+		appLogger.Error("激活账号失败: 同步 Codex auth.json 失败", "error", err, "id", record.ID, "account_id", record.AccountID, "email", record.Email)
+		return AccountInfo{}, err
+	}
+	if a.ctx != nil {
+		wailsRuntime.EventsEmit(a.ctx, codexAuthUpdatedEvent, codexInfo)
+	}
 	appLogger.Info("激活账号成功", "id", record.ID, "account_id", record.AccountID, "email", record.Email)
 	return record.AccountInfo, nil
 }

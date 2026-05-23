@@ -1,17 +1,27 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { CopyDocument, QuestionFilled } from '@element-plus/icons-vue'
 import {
   GetCodexAuthInfo,
   ScanCodexAuth,
 } from '../../wailsjs/go/main/App'
+import { EventsOn } from '../../wailsjs/runtime/runtime'
 
 const authRows = ref([])
 const environmentLoading = ref(false)
+let offCodexAuthUpdated = null
 
 onMounted(async () => {
+  offCodexAuthUpdated = EventsOn('codex-auth:updated', (info) => {
+    applyCodexAuthInfo(info)
+  })
   await loadCodexAuthInfo()
+})
+
+onUnmounted(() => {
+  offCodexAuthUpdated?.()
+  offCodexAuthUpdated = null
 })
 
 function applyCodexAuthInfo(info) {
