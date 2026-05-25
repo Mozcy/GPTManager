@@ -14,6 +14,8 @@ export function GetCodexAuthInfo():Promise<main.CodexAuthInfo>;
 
 export function GetEnvironmentConfig():Promise<main.EnvironmentConfig>;
 
+export function GetSelectedCodexProcessPIDs():Promise<Array<number>>;
+
 export function GetUpstreamConfig():Promise<main.UpstreamConfig>;
 
 export function Greet(arg1:string):Promise<string>;
@@ -29,6 +31,10 @@ export function SaveUpstreamConfig(arg1:main.UpstreamConfig):Promise<main.Upstre
 export function ScanCodexAuth():Promise<main.CodexAuthInfo>;
 
 export function ScanCodexAuthPath():Promise<main.CodexAuthInfo>;
+
+export function ScanCodexProcesses():Promise<Array<main.CodexProcessInfo>>;
+
+export function SetSelectedCodexProcessPIDs(arg1:Array<number>):Promise<void>;
 
 export function ShowWindow():Promise<void>;
 

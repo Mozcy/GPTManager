@@ -26,6 +26,10 @@ export function GetEnvironmentConfig() {
   return window['go']['main']['App']['GetEnvironmentConfig']();
 }
 
+export function GetSelectedCodexProcessPIDs() {
+  return window['go']['main']['App']['GetSelectedCodexProcessPIDs']();
+}
+
 export function GetUpstreamConfig() {
   return window['go']['main']['App']['GetUpstreamConfig']();
 }
@@ -56,6 +60,14 @@ export function ScanCodexAuth() {
 
 export function ScanCodexAuthPath() {
   return window['go']['main']['App']['ScanCodexAuthPath']();
+}
+
+export function ScanCodexProcesses() {
+  return window['go']['main']['App']['ScanCodexProcesses']();
+}
+
+export function SetSelectedCodexProcessPIDs(arg1) {
+  return window['go']['main']['App']['SetSelectedCodexProcessPIDs'](arg1);
 }
 
 export function ShowWindow() {

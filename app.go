@@ -27,11 +27,15 @@ type App struct {
 	usageMu      sync.Mutex
 	usageRunning bool
 	usageLastRun time.Time
+	processMu    sync.RWMutex
+	selectedPIDs map[int32]struct{}
 }
 
 // NewApp 创建一个新的应用实例。
 func NewApp() *App {
-	return &App{}
+	return &App{
+		selectedPIDs: make(map[int32]struct{}),
+	}
 }
 
 // startup 在应用启动时调用，保存上下文并启动系统托盘。

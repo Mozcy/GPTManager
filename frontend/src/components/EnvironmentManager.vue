@@ -1,15 +1,19 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { CopyDocument, QuestionFilled } from '@element-plus/icons-vue'
+import { Connection, CopyDocument, QuestionFilled } from '@element-plus/icons-vue'
 import {
   GetCodexAuthInfo,
   ScanCodexAuth,
+  ScanCodexProcesses,
+  SetSelectedCodexProcessPIDs,
 } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 
 const authRows = ref([])
+const processRows = ref([])
 const environmentLoading = ref(false)
+const processLoading = ref(false)
 let offCodexAuthUpdated = null
 
 onMounted(async () => {
@@ -17,6 +21,7 @@ onMounted(async () => {
     applyCodexAuthInfo(info)
   })
   await loadCodexAuthInfo()
+  await scanCodexProcesses(false)
 })
 
 onUnmounted(() => {
@@ -50,6 +55,28 @@ async function scanCodexAuth() {
   }
 }
 
+async function scanCodexProcesses(showMessage = true) {
+  processLoading.value = true
+  try {
+    processRows.value = await ScanCodexProcesses()
+    if (showMessage) {
+      ElMessage.success('进程扫描已完成')
+    }
+  } catch (error) {
+    ElMessage.error(error?.message || String(error))
+  } finally {
+    processLoading.value = false
+  }
+}
+
+async function handleProcessSelectionChange(selection) {
+  try {
+    await SetSelectedCodexProcessPIDs(selection.map((item) => item.pid))
+  } catch (error) {
+    ElMessage.error(error?.message || String(error))
+  }
+}
+
 function formatSubscription(value) {
   return value || '-'
 }
@@ -69,6 +96,64 @@ function getSubscriptionType(value) {
 
 function formatToken(value) {
   return value || '-'
+}
+
+function formatBool(value) {
+  if (value === true) return 'True'
+  if (value === false) return 'False'
+  return '-'
+}
+
+function formatNumber(value) {
+  if (value === null || value === undefined || value === '') return '-'
+  return value
+}
+
+function processDetailFields(row) {
+  return [
+    ['PID', row.pid],
+    ['名称', row.name],
+    ['命令行', row.commandLine],
+    ['程序路径', row.executablePath],
+    ['所属用户', row.owner],
+    ['启动时间', row.creationDate],
+    ['状态', row.status],
+    ['父进程 ID', row.parentPid],
+    ['父进程名称', row.parentName],
+    ['父进程命令行', row.parentCommandLine],
+    ['子进程', row.childProcesses],
+    ['线程数', row.threadCount],
+    ['句柄数', row.handleCount],
+    ['工作集内存 MB', row.workingSetMB],
+    ['虚拟内存 MB', row.virtualSizeMB],
+    ['峰值工作集 MB', row.peakWorkingSetMB],
+    ['共享内存 MB', row.sharedMemoryMB],
+    ['数据内存 MB', row.dataMemoryMB],
+    ['读操作次数', row.readCount],
+    ['写操作次数', row.writeCount],
+    ['读取 MB', row.readBytesMB],
+    ['写入 MB', row.writeBytesMB],
+    ['CPU 百分比', row.cpuPercent],
+    ['CPU 总秒数', row.totalCPUSeconds],
+    ['用户态 CPU 秒数', row.userModeTimeSec],
+    ['内核态 CPU 秒数', row.kernelModeTimeSec],
+    ['仍在运行', formatBool(row.isRunning)],
+    ['前台进程', formatBool(row.foreground)],
+    ['文件大小 MB', row.fileSizeMB],
+    ['文件创建时间', row.fileCreated],
+    ['文件修改时间', row.fileModified],
+    ['文件产品名', row.fileProductName],
+    ['文件产品版本', row.fileProductVersion],
+    ['文件版本', row.fileVersion],
+    ['文件公司', row.fileCompany],
+    ['文件描述', row.fileDescription],
+    ['SHA256', row.sha256],
+    ['TCP 连接', row.tcpConnections],
+  ]
+}
+
+function handleInjectPlaceholder() {
+  ElMessage.info('注入功能暂未实现')
 }
 
 async function copyText(value, label) {
@@ -187,6 +272,69 @@ async function copyText(value, label) {
         </el-table-column>
       </el-table>
     </section>
+
+    <section class="codex-process-section">
+      <div class="divider-row">
+        <el-divider content-position="left">Codex Process</el-divider>
+        <el-button type="primary" size="small" :loading="processLoading" @click="scanCodexProcesses()">
+          进程扫描
+        </el-button>
+      </div>
+      <el-table
+        :data="processRows"
+        class="environment-table"
+        border
+        empty-text="暂无 Codex 进程"
+        row-key="pid"
+        @selection-change="handleProcessSelectionChange"
+      >
+        <el-table-column type="selection" width="42" align="center" />
+        <el-table-column prop="pid" label="PID" width="90" align="center" />
+        <el-table-column label="名称" width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ displayValue(row.name) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="程序路径" min-width="260" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ displayValue(row.executablePath) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="版本" width="160" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ displayValue(row.fileVersion) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="92" align="center">
+          <template #default="{ row }">
+            <div class="operation-actions">
+              <el-button
+                class="icon-action inject"
+                size="small"
+                text
+                :icon="Connection"
+                title="注入"
+                @click="handleInjectPlaceholder"
+              />
+              <el-popover trigger="click" placement="left" width="520" popper-class="codex-process-detail-popover">
+                <template #reference>
+                  <el-button class="icon-action info" size="small" text :icon="QuestionFilled" title="进程详情" />
+                </template>
+                <div class="codex-process-detail">
+                  <div class="detail-title">进程详细信息</div>
+                  <div class="detail-grid process-detail-grid">
+                    <template v-for="field in processDetailFields(row)" :key="field[0]">
+                      <span>{{ field[0] }}</span>
+                      <strong>{{ displayValue(formatNumber(field[1])) }}</strong>
+                    </template>
+                  </div>
+                </div>
+              </el-popover>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
   </el-card>
 </template>
 
@@ -218,6 +366,11 @@ async function copyText(value, label) {
 
 .codex-auth-section {
   min-width: 0;
+}
+
+.codex-process-section {
+  min-width: 0;
+  margin-top: 18px;
 }
 
 .divider-row {
@@ -303,7 +456,8 @@ async function copyText(value, label) {
 }
 
 .icon-action.info,
-.icon-action.copy {
+.icon-action.copy,
+.icon-action.inject {
   color: #9bd0ff;
   --el-button-hover-text-color: #ffffff;
   --el-button-active-text-color: #ffffff;
@@ -312,23 +466,28 @@ async function copyText(value, label) {
 .icon-action.info:hover,
 .icon-action.info:focus,
 .icon-action.copy:hover,
-.icon-action.copy:focus {
+.icon-action.copy:focus,
+.icon-action.inject:hover,
+.icon-action.inject:focus {
   color: #ffffff;
   background: #1b2636;
 }
 
-:global(.codex-auth-detail-popover) {
+:global(.codex-auth-detail-popover),
+:global(.codex-process-detail-popover) {
   border: 1px solid #32475b !important;
   background: #243447 !important;
   color: #e8eef5 !important;
 }
 
-:global(.codex-auth-detail-popover .el-popper__arrow::before) {
+:global(.codex-auth-detail-popover .el-popper__arrow::before),
+:global(.codex-process-detail-popover .el-popper__arrow::before) {
   border-color: #32475b !important;
   background: #243447 !important;
 }
 
-.codex-auth-detail {
+.codex-auth-detail,
+.codex-process-detail {
   max-height: min(600px, 70vh);
   overflow: auto;
   padding-right: 2px;
@@ -336,21 +495,25 @@ async function copyText(value, label) {
   scrollbar-width: thin;
 }
 
-.codex-auth-detail::-webkit-scrollbar {
+.codex-auth-detail::-webkit-scrollbar,
+.codex-process-detail::-webkit-scrollbar {
   width: 8px;
 }
 
-.codex-auth-detail::-webkit-scrollbar-track {
+.codex-auth-detail::-webkit-scrollbar-track,
+.codex-process-detail::-webkit-scrollbar-track {
   background: #1f2f3f;
   border-radius: 999px;
 }
 
-.codex-auth-detail::-webkit-scrollbar-thumb {
+.codex-auth-detail::-webkit-scrollbar-thumb,
+.codex-process-detail::-webkit-scrollbar-thumb {
   background: #4f6680;
   border-radius: 999px;
 }
 
-.codex-auth-detail::-webkit-scrollbar-thumb:hover {
+.codex-auth-detail::-webkit-scrollbar-thumb:hover,
+.codex-process-detail::-webkit-scrollbar-thumb:hover {
   background: #66809b;
 }
 
@@ -414,6 +577,10 @@ async function copyText(value, label) {
 
 .token-grid > span {
   align-self: center;
+}
+
+.process-detail-grid {
+  grid-template-columns: 110px minmax(0, 1fr);
 }
 
 .token-value code {
