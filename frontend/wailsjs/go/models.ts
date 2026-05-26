@@ -24,6 +24,9 @@ export namespace main {
 	    subject: string;
 	    userId: string;
 	    accountId: string;
+	    accessToken: string;
+	    idToken: string;
+	    refreshToken: string;
 	    email: string;
 	    name: string;
 	    workspaceName: string;
@@ -53,6 +56,9 @@ export namespace main {
 	        this.subject = source["subject"];
 	        this.userId = source["userId"];
 	        this.accountId = source["accountId"];
+	        this.accessToken = source["accessToken"];
+	        this.idToken = source["idToken"];
+	        this.refreshToken = source["refreshToken"];
 	        this.email = source["email"];
 	        this.name = source["name"];
 	        this.workspaceName = source["workspaceName"];

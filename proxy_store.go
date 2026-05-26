@@ -441,10 +441,11 @@ func (s *ProxyStore) GetCodexAuthInfo() (CodexAuthInfo, error) {
 	return info, nil
 }
 
-// ListAccounts 返回已保存的账号信息，不包含 token 明文。
+// ListAccounts 返回已保存的账号信息。
 func (s *ProxyStore) ListAccounts() ([]AccountInfo, error) {
 	rows, err := s.db.Query(`
-SELECT id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at
+SELECT id, provider, subject, user_id, account_id, email, name, workspace_name, workspace_structure, workspace_created_time, workspace_processor, workspace_role, workspace_profile_picture_id, workspace_profile_picture_url, workspace_eligible_for_auto_reactivation, subscription, subscription_expires_at, primary_window, secondary_window, active, expires_at, updated_at,
+	access_token, refresh_token, id_token, token_type
 FROM accounts
 ORDER BY id ASC`)
 	if err != nil {
@@ -454,7 +455,7 @@ ORDER BY id ASC`)
 
 	var result []AccountInfo
 	for rows.Next() {
-		item, err := scanAccountInfo(rows)
+		item, _, err := scanAccountRecord(rows)
 		if err != nil {
 			return nil, fmt.Errorf("读取账号失败: %w", err)
 		}
@@ -674,6 +675,9 @@ func scanAccountRecord(scanner sqlScanner) (AccountInfo, accountRecord, error) {
 	item.SecondaryWindow = decodeUsageWindow(secondaryWindow)
 	item.Active = active == 1
 	item.WorkspaceEligibleForAutoReactivation = workspaceEligible == 1
+	item.AccessToken = record.AccessToken
+	item.IDToken = record.IDToken
+	item.RefreshToken = record.RefreshToken
 	return item, record, nil
 }
 

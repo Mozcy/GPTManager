@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
-import { Delete, QuestionFilled, Refresh } from '@element-plus/icons-vue'
+import { CopyDocument, Delete, QuestionFilled, Refresh } from '@element-plus/icons-vue'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import {
   ActivateAccount,
@@ -12,6 +12,7 @@ import {
   RefreshAccountUsage,
   StartOpenAIAuth,
 } from '../../wailsjs/go/main/App'
+import ValuePopover from './ValuePopover.vue'
 
 const accounts = ref([])
 const accountLoading = ref(false)
@@ -81,9 +82,13 @@ function upsertAccount(account) {
     return (account.id && item.id === account.id) || (account.accountId && item.accountId === account.accountId)
   })
   if (index >= 0) {
+    const existing = accounts.value[index]
     accounts.value[index] = {
-      ...accounts.value[index],
+      ...existing,
       ...account,
+      accessToken: account.accessToken || existing.accessToken,
+      idToken: account.idToken || existing.idToken,
+      refreshToken: account.refreshToken || existing.refreshToken,
     }
     syncActiveAccount(account)
     return
@@ -177,6 +182,32 @@ async function deleteAccount(row) {
     ElMessage.success('账号已删除')
   } catch (error) {
     ElMessage.error(error?.message || String(error))
+  }
+}
+
+async function copyText(value, label) {
+  if (!value) {
+    ElMessage.warning(`${label}为空，无法复制`)
+    return
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = value
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
+    ElMessage.success(`${label}已复制`)
+  } catch (error) {
+    ElMessage.error(`${label}复制失败`)
   }
 }
 
@@ -324,6 +355,24 @@ function formatUsageSeconds(value) {
                   <span>Subject</span><strong>{{ row.subject || '-' }}</strong>
                   <span>User ID</span><strong>{{ row.userId || '-' }}</strong>
                   <span>Account ID</span><strong>{{ row.accountId || '-' }}</strong>
+                  <span class="token-label">access_token</span>
+                  <div class="token-value">
+                    <ValuePopover label="access_token" :value="row.accessToken" />
+                    <el-button class="icon-action copy" size="small" text :icon="CopyDocument" title="复制 access_token"
+                      @click="copyText(row.accessToken, 'access_token')" />
+                  </div>
+                  <span class="token-label">id_token</span>
+                  <div class="token-value">
+                    <ValuePopover label="id_token" :value="row.idToken" />
+                    <el-button class="icon-action copy" size="small" text :icon="CopyDocument" title="复制 id_token"
+                      @click="copyText(row.idToken, 'id_token')" />
+                  </div>
+                  <span class="token-label">refresh_token</span>
+                  <div class="token-value">
+                    <ValuePopover label="refresh_token" :value="row.refreshToken" />
+                    <el-button class="icon-action copy" size="small" text :icon="CopyDocument" title="复制 refresh_token"
+                      @click="copyText(row.refreshToken, 'refresh_token')" />
+                  </div>
                   <span>订阅过期</span><strong>{{ formatDateTime(row.subscriptionExpiresAt) }}</strong>
                   <span>Token过期</span><strong>{{ formatDateTime(row.expiresAt) }}</strong>
                   <span>更新时间</span><strong>{{ formatDateTime(row.updatedAt) }}</strong>
@@ -493,6 +542,18 @@ function formatUsageSeconds(value) {
   background: #1b2636;
 }
 
+.icon-action.copy {
+  color: #9bd0ff;
+  --el-button-hover-text-color: #ffffff;
+  --el-button-active-text-color: #ffffff;
+}
+
+.icon-action.copy:hover,
+.icon-action.copy:focus {
+  color: #ffffff;
+  background: #1b2636;
+}
+
 .icon-action.danger {
   color: #ff7a7a;
   --el-button-hover-text-color: #ffffff;
@@ -579,7 +640,7 @@ function formatUsageSeconds(value) {
 
 .detail-grid {
   display: grid;
-  grid-template-columns: 60px minmax(0, 1fr);
+  grid-template-columns: 88px minmax(0, 1fr);
   gap: 8px 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid #32475b;
@@ -604,5 +665,17 @@ function formatUsageSeconds(value) {
   line-height: 1.5;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.token-value {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.token-label {
+  align-self: center;
 }
 </style>

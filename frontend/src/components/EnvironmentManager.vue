@@ -10,12 +10,14 @@ import {
   SetSelectedCodexProcessPIDs,
 } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
+import ValuePopover from './ValuePopover.vue'
 
 const authRows = ref([])
 const processRows = ref([])
 const environmentLoading = ref(false)
 const processLoading = ref(false)
 const injectingPID = ref(null)
+const processDetailPopoverLabels = new Set(['命令行', '程序路径', '父进程命令行'])
 let offCodexAuthUpdated = null
 
 onMounted(async () => {
@@ -96,10 +98,6 @@ function getSubscriptionType(value) {
   return 'unknown'
 }
 
-function formatToken(value) {
-  return value || '-'
-}
-
 function formatBool(value) {
   if (value === true) return 'True'
   if (value === false) return 'False'
@@ -152,6 +150,10 @@ function processDetailFields(row) {
     ['SHA256', row.sha256],
     ['TCP 连接', row.tcpConnections],
   ]
+}
+
+function isProcessDetailPopoverField(label) {
+  return processDetailPopoverLabels.has(label)
 }
 
 async function injectCodexProcess(row) {
@@ -263,46 +265,19 @@ async function copyText(value, label) {
                   <div class="detail-grid token-grid">
                     <span>access_token</span>
                     <div class="token-value">
-                      <el-tooltip
-                        placement="top"
-                        popper-class="codex-auth-token-tooltip"
-                        :disabled="!row.accessToken"
-                      >
-                        <template #content>
-                          <div class="auth-token-tooltip-content">{{ formatToken(row.accessToken) }}</div>
-                        </template>
-                        <code>{{ formatToken(row.accessToken) }}</code>
-                      </el-tooltip>
+                      <ValuePopover label="access_token" :value="row.accessToken" />
                       <el-button class="icon-action copy" size="small" text :icon="CopyDocument" title="复制 access_token"
                         @click="copyText(row.accessToken, 'access_token')" />
                     </div>
                     <span>id_token</span>
                     <div class="token-value">
-                      <el-tooltip
-                        placement="top"
-                        popper-class="codex-auth-token-tooltip"
-                        :disabled="!row.idToken"
-                      >
-                        <template #content>
-                          <div class="auth-token-tooltip-content">{{ formatToken(row.idToken) }}</div>
-                        </template>
-                        <code>{{ formatToken(row.idToken) }}</code>
-                      </el-tooltip>
+                      <ValuePopover label="id_token" :value="row.idToken" />
                       <el-button class="icon-action copy" size="small" text :icon="CopyDocument" title="复制 id_token"
                         @click="copyText(row.idToken, 'id_token')" />
                     </div>
                     <span>refresh_token</span>
                     <div class="token-value">
-                      <el-tooltip
-                        placement="top"
-                        popper-class="codex-auth-token-tooltip"
-                        :disabled="!row.refreshToken"
-                      >
-                        <template #content>
-                          <div class="auth-token-tooltip-content">{{ formatToken(row.refreshToken) }}</div>
-                        </template>
-                        <code>{{ formatToken(row.refreshToken) }}</code>
-                      </el-tooltip>
+                      <ValuePopover label="refresh_token" :value="row.refreshToken" />
                       <el-button class="icon-action copy" size="small" text :icon="CopyDocument" title="复制 refresh_token"
                         @click="copyText(row.refreshToken, 'refresh_token')" />
                     </div>
@@ -369,7 +344,12 @@ async function copyText(value, label) {
                   <div class="detail-grid process-detail-grid">
                     <template v-for="field in processDetailFields(row)" :key="field[0]">
                       <span>{{ field[0] }}</span>
-                      <strong>{{ displayValue(formatNumber(field[1])) }}</strong>
+                      <ValuePopover
+                        v-if="isProcessDetailPopoverField(field[0])"
+                        :label="field[0]"
+                        :value="displayValue(formatNumber(field[1]))"
+                      />
+                      <strong v-else>{{ displayValue(formatNumber(field[1])) }}</strong>
                     </template>
                   </div>
                 </div>
@@ -528,30 +508,6 @@ async function copyText(value, label) {
 :global(.codex-process-detail-popover .el-popper__arrow::before) {
   border-color: #32475b !important;
   background: #243447 !important;
-}
-
-:global(.codex-auth-token-tooltip) {
-  max-width: min(720px, calc(100vw - 48px));
-  border: 1px solid #32475b !important;
-  background: #1f2f3f !important;
-  color: #e8eef5 !important;
-}
-
-:global(.codex-auth-token-tooltip .el-popper__arrow::before) {
-  border-color: #32475b !important;
-  background: #1f2f3f !important;
-}
-
-:global(.codex-auth-token-tooltip .auth-token-tooltip-content) {
-  max-height: 360px;
-  overflow: auto;
-  color: #e8eef5;
-  font-family: Consolas, 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 .codex-auth-detail,

@@ -39,6 +39,12 @@ type AccountInfo struct {
 	UserID string `json:"userId"`
 	// AccountID 是 ChatGPT 账号 ID，代理请求会写入 ChatGPT-Account-Id 请求头。
 	AccountID string `json:"accountId"`
+	// AccessToken 是 OpenAI OAuth access_token，仅用于本地账号详情展示和 Codex 认证注入。
+	AccessToken string `json:"accessToken"`
+	// IDToken 是 OpenAI OAuth id_token，仅用于本地账号详情展示。
+	IDToken string `json:"idToken"`
+	// RefreshToken 是 OpenAI OAuth refresh_token，仅用于本地账号详情展示和刷新 token。
+	RefreshToken string `json:"refreshToken"`
 	// Email 是账号邮箱，仅用于展示。
 	Email string `json:"email"`
 	// Name 是账号昵称，仅用于展示。
