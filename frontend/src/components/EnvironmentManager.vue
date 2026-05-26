@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { Connection, CopyDocument, QuestionFilled } from '@element-plus/icons-vue'
 import {
   GetCodexAuthInfo,
+  InjectActiveAccountToCodexProcess,
   ScanCodexAuth,
   ScanCodexProcesses,
   SetSelectedCodexProcessPIDs,
@@ -14,6 +15,7 @@ const authRows = ref([])
 const processRows = ref([])
 const environmentLoading = ref(false)
 const processLoading = ref(false)
+const injectingPID = ref(null)
 let offCodexAuthUpdated = null
 
 onMounted(async () => {
@@ -152,8 +154,21 @@ function processDetailFields(row) {
   ]
 }
 
-function handleInjectPlaceholder() {
-  ElMessage.info('注入功能暂未实现')
+async function injectCodexProcess(row) {
+  if (!row?.pid) {
+    ElMessage.warning('PID 无效')
+    return
+  }
+
+  injectingPID.value = row.pid
+  try {
+    await InjectActiveAccountToCodexProcess(row.pid)
+    ElMessage.success('注入已完成')
+  } catch (error) {
+    ElMessage.error(error?.message || String(error))
+  } finally {
+    injectingPID.value = null
+  }
 }
 
 async function copyText(value, label) {
@@ -248,19 +263,46 @@ async function copyText(value, label) {
                   <div class="detail-grid token-grid">
                     <span>access_token</span>
                     <div class="token-value">
-                      <code>{{ formatToken(row.accessToken) }}</code>
+                      <el-tooltip
+                        placement="top"
+                        popper-class="codex-auth-token-tooltip"
+                        :disabled="!row.accessToken"
+                      >
+                        <template #content>
+                          <div class="auth-token-tooltip-content">{{ formatToken(row.accessToken) }}</div>
+                        </template>
+                        <code>{{ formatToken(row.accessToken) }}</code>
+                      </el-tooltip>
                       <el-button class="icon-action copy" size="small" text :icon="CopyDocument" title="复制 access_token"
                         @click="copyText(row.accessToken, 'access_token')" />
                     </div>
                     <span>id_token</span>
                     <div class="token-value">
-                      <code>{{ formatToken(row.idToken) }}</code>
+                      <el-tooltip
+                        placement="top"
+                        popper-class="codex-auth-token-tooltip"
+                        :disabled="!row.idToken"
+                      >
+                        <template #content>
+                          <div class="auth-token-tooltip-content">{{ formatToken(row.idToken) }}</div>
+                        </template>
+                        <code>{{ formatToken(row.idToken) }}</code>
+                      </el-tooltip>
                       <el-button class="icon-action copy" size="small" text :icon="CopyDocument" title="复制 id_token"
                         @click="copyText(row.idToken, 'id_token')" />
                     </div>
                     <span>refresh_token</span>
                     <div class="token-value">
-                      <code>{{ formatToken(row.refreshToken) }}</code>
+                      <el-tooltip
+                        placement="top"
+                        popper-class="codex-auth-token-tooltip"
+                        :disabled="!row.refreshToken"
+                      >
+                        <template #content>
+                          <div class="auth-token-tooltip-content">{{ formatToken(row.refreshToken) }}</div>
+                        </template>
+                        <code>{{ formatToken(row.refreshToken) }}</code>
+                      </el-tooltip>
                       <el-button class="icon-action copy" size="small" text :icon="CopyDocument" title="复制 refresh_token"
                         @click="copyText(row.refreshToken, 'refresh_token')" />
                     </div>
@@ -314,14 +356,16 @@ async function copyText(value, label) {
                 text
                 :icon="Connection"
                 title="注入"
-                @click="handleInjectPlaceholder"
+                :loading="injectingPID === row.pid"
+                :disabled="processLoading || (injectingPID !== null && injectingPID !== row.pid)"
+                @click="injectCodexProcess(row)"
               />
-              <el-popover trigger="click" placement="left" width="520" popper-class="codex-process-detail-popover">
+              <el-popover trigger="click" placement="left" width="400" popper-class="codex-process-detail-popover">
                 <template #reference>
                   <el-button class="icon-action info" size="small" text :icon="QuestionFilled" title="进程详情" />
                 </template>
                 <div class="codex-process-detail">
-                  <div class="detail-title">进程详细信息</div>
+                  <div class="detail-title">进程详情</div>
                   <div class="detail-grid process-detail-grid">
                     <template v-for="field in processDetailFields(row)" :key="field[0]">
                       <span>{{ field[0] }}</span>
@@ -486,9 +530,33 @@ async function copyText(value, label) {
   background: #243447 !important;
 }
 
+:global(.codex-auth-token-tooltip) {
+  max-width: min(720px, calc(100vw - 48px));
+  border: 1px solid #32475b !important;
+  background: #1f2f3f !important;
+  color: #e8eef5 !important;
+}
+
+:global(.codex-auth-token-tooltip .el-popper__arrow::before) {
+  border-color: #32475b !important;
+  background: #1f2f3f !important;
+}
+
+:global(.codex-auth-token-tooltip .auth-token-tooltip-content) {
+  max-height: 360px;
+  overflow: auto;
+  color: #e8eef5;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .codex-auth-detail,
 .codex-process-detail {
-  max-height: min(600px, 70vh);
+  max-height: min(700px, 80vh);
   overflow: auto;
   padding-right: 2px;
   scrollbar-color: #4f6680 #1f2f3f;
@@ -580,7 +648,7 @@ async function copyText(value, label) {
 }
 
 .process-detail-grid {
-  grid-template-columns: 110px minmax(0, 1fr);
+  grid-template-columns: 100px minmax(0, 1fr);
 }
 
 .token-value code {

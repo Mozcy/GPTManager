@@ -183,6 +183,10 @@ func (a *App) ActivateAccount(id int64) (AccountInfo, error) {
 	if a.ctx != nil {
 		wailsRuntime.EventsEmit(a.ctx, codexAuthUpdatedEvent, codexInfo)
 	}
+	if err := a.patchSelectedCodexProcesses(record); err != nil {
+		appLogger.Error("激活账号失败: Codex 进程内存替换失败", "error", err, "id", record.ID, "account_id", record.AccountID, "email", record.Email)
+		return AccountInfo{}, err
+	}
 	appLogger.Info("激活账号成功", "id", record.ID, "account_id", record.AccountID, "email", record.Email)
 	return record.AccountInfo, nil
 }

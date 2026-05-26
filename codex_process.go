@@ -1,6 +1,10 @@
 package main
 
-import "sort"
+import (
+	"errors"
+	"fmt"
+	"sort"
+)
 
 // CodexProcessInfo 表示 Codex 进程扫描结果。
 type CodexProcessInfo struct {
@@ -84,6 +88,59 @@ func (a *App) GetSelectedCodexProcessPIDs() []int32 {
 		return pids[i] < pids[j]
 	})
 	return pids
+}
+
+// InjectActiveAccountToCodexProcess 将当前激活账号写入指定 Codex 进程内存。
+func (a *App) InjectActiveAccountToCodexProcess(pid int32) error {
+	if err := a.ensureProxyService(); err != nil {
+		appLogger.Error("注入 Codex 进程失败: 服务未初始化", "error", err, "pid", pid)
+		return err
+	}
+	if pid <= 0 {
+		return errors.New("Codex 进程 PID 无效")
+	}
+
+	record, ok, err := a.proxyStore.GetActiveAccountRecord()
+	if err != nil {
+		appLogger.Error("注入 Codex 进程失败: 查询激活账号失败", "error", err, "pid", pid)
+		return err
+	}
+	if !ok {
+		return errors.New("未找到当前激活账号")
+	}
+
+	if err := patchCodexProcessMemory(pid, record); err != nil {
+		appLogger.Error("注入 Codex 进程失败", "error", err, "pid", pid, "account_id", record.AccountID, "email", record.Email)
+		return err
+	}
+	appLogger.Info("注入 Codex 进程成功", "pid", pid, "account_id", record.AccountID, "email", record.Email)
+	return nil
+}
+
+func (a *App) patchSelectedCodexProcesses(record accountRecord) error {
+	pids := a.GetSelectedCodexProcessPIDs()
+	if len(pids) == 0 {
+		return nil
+	}
+	return patchCodexProcesses(pids, record)
+}
+
+func patchCodexProcesses(pids []int32, record accountRecord) error {
+	var errs []error
+	for _, pid := range pids {
+		if pid <= 0 {
+			continue
+		}
+		if err := patchCodexProcessMemory(pid, record); err != nil {
+			errs = append(errs, fmt.Errorf("PID %d: %w", pid, err))
+			continue
+		}
+		appLogger.Info("Codex 进程内存替换成功", "pid", pid, "account_id", record.AccountID, "email", record.Email)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("Codex 进程内存替换失败: %w", errors.Join(errs...))
+	}
+	return nil
 }
 
 func (a *App) clearSelectedCodexProcessPIDs() {

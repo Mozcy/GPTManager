@@ -38,6 +38,10 @@ export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
 
+export function InjectActiveAccountToCodexProcess(arg1) {
+  return window['go']['main']['App']['InjectActiveAccountToCodexProcess'](arg1);
+}
+
 export function ListAccounts() {
   return window['go']['main']['App']['ListAccounts']();
 }

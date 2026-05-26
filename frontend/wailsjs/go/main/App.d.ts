@@ -20,6 +20,8 @@ export function GetUpstreamConfig():Promise<main.UpstreamConfig>;
 
 export function Greet(arg1:string):Promise<string>;
 
+export function InjectActiveAccountToCodexProcess(arg1:number):Promise<void>;
+
 export function ListAccounts():Promise<Array<main.AccountInfo>>;
 
 export function QuitApplication():Promise<void>;
