@@ -354,7 +354,7 @@ async function copyText(value, label) {
             <span>{{ displayValue(row.name) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="启动来源" width="130" show-overflow-tooltip>
+        <el-table-column label="启动来源" width="180" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ displayLauncher(row) }}</span>
           </template>

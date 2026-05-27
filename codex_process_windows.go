@@ -174,6 +174,18 @@ var codexProcessLauncherNames = map[string]codexProcessLauncherMatch{
 	"rubymine64.exe":      {displayName: "RubyMine", confidence: "high"},
 }
 
+var codexProcessFallbackLauncherNames = map[string]codexProcessLauncherMatch{
+	"windowsterminal.exe":      {displayName: "Windows Terminal", confidence: "medium"},
+	"openterminal.exe":         {displayName: "Windows Terminal", confidence: "medium"},
+	"openconsole.exe":          {displayName: "Console Host", confidence: "medium"},
+	"conhost.exe":              {displayName: "Console Host", confidence: "medium"},
+	"powershell.exe":           {displayName: "PowerShell", confidence: "medium"},
+	"pwsh.exe":                 {displayName: "PowerShell", confidence: "medium"},
+	"cmd.exe":                  {displayName: "Command Prompt", confidence: "medium"},
+	"explorer.exe":             {displayName: "Windows Shell", confidence: "medium"},
+	"applicationframehost.exe": {displayName: "Windows App Host", confidence: "medium"},
+}
+
 func enrichCodexProcessLauncher(info *CodexProcessInfo, p *process.Process, procMap map[int32]*process.Process) {
 	ancestors := collectCodexProcessAncestors(p, procMap, 12)
 	info.ProcessTree = formatCodexProcessTree(info.ProcessID, info.Name, ancestors)
@@ -187,6 +199,22 @@ func enrichCodexProcessLauncher(info *CodexProcessInfo, p *process.Process, proc
 		info.LauncherPID = ancestor.pid
 		info.LauncherPath = ancestor.executablePath
 		info.LauncherCommandLine = ancestor.commandLine
+		info.LauncherConfidence = match.confidence
+		return
+	}
+	if match, launcher, evidence, ok := matchCodexProcessLauncherFromEnv(p); ok {
+		info.LauncherName = match.displayName
+		info.LauncherPID = launcher.pid
+		info.LauncherPath = launcher.executablePath
+		info.LauncherCommandLine = firstNonEmpty(launcher.commandLine, evidence)
+		info.LauncherConfidence = match.confidence
+		return
+	}
+	if match, launcher, ok := matchCodexProcessFallbackLauncher(info, ancestors); ok {
+		info.LauncherName = match.displayName
+		info.LauncherPID = launcher.pid
+		info.LauncherPath = launcher.executablePath
+		info.LauncherCommandLine = launcher.commandLine
 		info.LauncherConfidence = match.confidence
 		return
 	}
@@ -245,6 +273,84 @@ func matchCodexProcessLauncher(name string, path string) (codexProcessLauncherMa
 		}
 	}
 	return codexProcessLauncherMatch{}, false
+}
+
+func matchCodexProcessFallbackLauncher(info *CodexProcessInfo, ancestors []codexProcessAncestor) (codexProcessLauncherMatch, codexProcessAncestor, bool) {
+	if isCodexProcessMicrosoftStorePath(info.ExecutablePath) || isCodexProcessMicrosoftStorePath(info.CommandLine) {
+		return codexProcessLauncherMatch{displayName: "Microsoft Store Codex", confidence: "medium"}, codexProcessAncestor{
+			pid:            info.ProcessID,
+			name:           info.Name,
+			executablePath: info.ExecutablePath,
+			commandLine:    firstNonEmpty(info.CommandLine, info.ExecutablePath),
+		}, true
+	}
+	for _, ancestor := range ancestors {
+		normalized := strings.ToLower(strings.TrimSpace(ancestor.name))
+		if match, ok := codexProcessFallbackLauncherNames[normalized]; ok {
+			return match, ancestor, true
+		}
+		if isCodexProcessMicrosoftStorePath(ancestor.executablePath) || isCodexProcessMicrosoftStorePath(ancestor.commandLine) {
+			return codexProcessLauncherMatch{displayName: "Microsoft Store / WindowsApps", confidence: "medium"}, ancestor, true
+		}
+	}
+	return codexProcessLauncherMatch{}, codexProcessAncestor{}, false
+}
+
+func isCodexProcessMicrosoftStorePath(value string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(value, "/", "\\"))
+	return strings.Contains(normalized, "\\windowsapps\\") ||
+		strings.Contains(normalized, "\\microsoft\\windowsapps\\") ||
+		strings.Contains(normalized, "microsoft.windowsapps")
+}
+
+func matchCodexProcessLauncherFromEnv(p *process.Process) (codexProcessLauncherMatch, codexProcessAncestor, string, bool) {
+	env, err := p.Environ()
+	if err != nil || len(env) == 0 {
+		return codexProcessLauncherMatch{}, codexProcessAncestor{}, "", false
+	}
+
+	envMap := make(map[string]string, len(env))
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok {
+			continue
+		}
+		envMap[strings.ToUpper(strings.TrimSpace(key))] = value
+	}
+
+	if key, ok := findEnvKeyWithPrefix(envMap, "CURSOR_"); ok {
+		return codexProcessLauncherMatch{displayName: "Cursor", confidence: "medium"}, codexProcessAncestor{}, "环境变量: " + key, true
+	}
+	if strings.EqualFold(envMap["TERM_PROGRAM"], "vscode") {
+		return codexProcessLauncherMatch{displayName: "VS Code", confidence: "medium"}, codexProcessAncestor{}, "环境变量: TERM_PROGRAM=vscode", true
+	}
+	if key, ok := findEnvKeyWithPrefix(envMap, "VSCODE_"); ok {
+		return codexProcessLauncherMatch{displayName: "VS Code", confidence: "medium"}, codexProcessAncestor{}, "环境变量: " + key, true
+	}
+	if strings.Contains(strings.ToLower(envMap["TERMINAL_EMULATOR"]), "jetbrains") {
+		return codexProcessLauncherMatch{displayName: "JetBrains Terminal", confidence: "medium"}, codexProcessAncestor{}, "环境变量: TERMINAL_EMULATOR=" + envMap["TERMINAL_EMULATOR"], true
+	}
+	if key, ok := findEnvKeyWithPrefix(envMap, "__INTELLIJ_"); ok {
+		return codexProcessLauncherMatch{displayName: "JetBrains Terminal", confidence: "medium"}, codexProcessAncestor{}, "环境变量: " + key, true
+	}
+	if _, ok := envMap["WT_SESSION"]; ok {
+		return codexProcessLauncherMatch{displayName: "Windows Terminal", confidence: "medium"}, codexProcessAncestor{}, "环境变量: WT_SESSION", true
+	}
+	return codexProcessLauncherMatch{}, codexProcessAncestor{}, "", false
+}
+
+func findEnvKeyWithPrefix(envMap map[string]string, prefix string) (string, bool) {
+	keys := make([]string, 0, len(envMap))
+	for key := range envMap {
+		if strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return "", false
+	}
+	sort.Strings(keys)
+	return keys[0], true
 }
 
 func formatCodexProcessTree(pid int32, name string, ancestors []codexProcessAncestor) string {
