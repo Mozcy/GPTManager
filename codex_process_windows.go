@@ -24,13 +24,20 @@ func scanCodexProcessesByName(processName string) ([]CodexProcessInfo, error) {
 		return nil, err
 	}
 
+	procMap := make(map[int32]*process.Process, len(procs))
+	for _, p := range procs {
+		if p != nil && p.Pid > 0 {
+			procMap[p.Pid] = p
+		}
+	}
+
 	rows := make([]CodexProcessInfo, 0)
 	for _, p := range procs {
 		name, err := p.Name()
 		if err != nil || !strings.EqualFold(name, processName) {
 			continue
 		}
-		rows = append(rows, collectCodexProcessInfo(p, name))
+		rows = append(rows, collectCodexProcessInfo(p, name, procMap))
 	}
 
 	sort.Slice(rows, func(i, j int) bool {
@@ -39,7 +46,7 @@ func scanCodexProcessesByName(processName string) ([]CodexProcessInfo, error) {
 	return rows, nil
 }
 
-func collectCodexProcessInfo(p *process.Process, name string) CodexProcessInfo {
+func collectCodexProcessInfo(p *process.Process, name string, procMap map[int32]*process.Process) CodexProcessInfo {
 	info := CodexProcessInfo{
 		ProcessID: p.Pid,
 		Name:      name,
@@ -63,6 +70,7 @@ func collectCodexProcessInfo(p *process.Process, name string) CodexProcessInfo {
 		info.ParentName = getProcessString(parent.Name)
 		info.ParentCommandLine = getProcessString(parent.Cmdline)
 	}
+	enrichCodexProcessLauncher(&info, p, procMap)
 
 	if children, err := p.Children(); err == nil && len(children) > 0 {
 		parts := make([]string, 0, len(children))
@@ -109,6 +117,132 @@ func collectCodexProcessInfo(p *process.Process, name string) CodexProcessInfo {
 	}
 
 	return info
+}
+
+type codexProcessAncestor struct {
+	pid            int32
+	name           string
+	executablePath string
+	commandLine    string
+}
+
+type codexProcessLauncherMatch struct {
+	displayName string
+	confidence  string
+}
+
+var codexProcessLauncherNames = map[string]codexProcessLauncherMatch{
+	"idea.exe":            {displayName: "IntelliJ IDEA", confidence: "high"},
+	"idea64.exe":          {displayName: "IntelliJ IDEA", confidence: "high"},
+	"goland.exe":          {displayName: "GoLand", confidence: "high"},
+	"goland64.exe":        {displayName: "GoLand", confidence: "high"},
+	"code.exe":            {displayName: "VS Code", confidence: "high"},
+	"code - insiders.exe": {displayName: "VS Code Insiders", confidence: "high"},
+	"codium.exe":          {displayName: "VSCodium", confidence: "high"},
+	"vscodium.exe":        {displayName: "VSCodium", confidence: "high"},
+	"cursor.exe":          {displayName: "Cursor", confidence: "high"},
+	"windsurf.exe":        {displayName: "Windsurf", confidence: "high"},
+	"trae.exe":            {displayName: "Trae", confidence: "high"},
+	"pycharm.exe":         {displayName: "PyCharm", confidence: "high"},
+	"pycharm64.exe":       {displayName: "PyCharm", confidence: "high"},
+	"webstorm.exe":        {displayName: "WebStorm", confidence: "high"},
+	"webstorm64.exe":      {displayName: "WebStorm", confidence: "high"},
+	"rider.exe":           {displayName: "Rider", confidence: "high"},
+	"rider64.exe":         {displayName: "Rider", confidence: "high"},
+	"clion.exe":           {displayName: "CLion", confidence: "high"},
+	"clion64.exe":         {displayName: "CLion", confidence: "high"},
+	"phpstorm.exe":        {displayName: "PhpStorm", confidence: "high"},
+	"phpstorm64.exe":      {displayName: "PhpStorm", confidence: "high"},
+	"rubymine.exe":        {displayName: "RubyMine", confidence: "high"},
+	"rubymine64.exe":      {displayName: "RubyMine", confidence: "high"},
+}
+
+func enrichCodexProcessLauncher(info *CodexProcessInfo, p *process.Process, procMap map[int32]*process.Process) {
+	ancestors := collectCodexProcessAncestors(p, procMap, 12)
+	info.ProcessTree = formatCodexProcessTree(info.ProcessID, info.Name, ancestors)
+
+	for _, ancestor := range ancestors {
+		match, ok := matchCodexProcessLauncher(ancestor.name, ancestor.executablePath)
+		if !ok {
+			continue
+		}
+		info.LauncherName = match.displayName
+		info.LauncherPID = ancestor.pid
+		info.LauncherPath = ancestor.executablePath
+		info.LauncherCommandLine = ancestor.commandLine
+		info.LauncherConfidence = match.confidence
+		return
+	}
+	info.LauncherConfidence = "low"
+}
+
+func collectCodexProcessAncestors(p *process.Process, procMap map[int32]*process.Process, maxDepth int) []codexProcessAncestor {
+	ancestors := make([]codexProcessAncestor, 0, maxDepth)
+	seen := map[int32]struct{}{
+		p.Pid: {},
+	}
+	current := p
+	for depth := 0; depth < maxDepth; depth++ {
+		ppid := getProcessInt32(current.Ppid)
+		if ppid <= 0 {
+			break
+		}
+		if _, ok := seen[ppid]; ok {
+			break
+		}
+		seen[ppid] = struct{}{}
+
+		parent := procMap[ppid]
+		if parent == nil {
+			var err error
+			parent, err = process.NewProcess(ppid)
+			if err != nil || parent == nil {
+				break
+			}
+		}
+
+		ancestors = append(ancestors, codexProcessAncestor{
+			pid:            parent.Pid,
+			name:           getProcessString(parent.Name),
+			executablePath: getProcessString(parent.Exe),
+			commandLine:    getProcessString(parent.Cmdline),
+		})
+		current = parent
+	}
+	return ancestors
+}
+
+func matchCodexProcessLauncher(name string, path string) (codexProcessLauncherMatch, bool) {
+	candidates := []string{name}
+	if path != "" {
+		parts := strings.FieldsFunc(path, func(r rune) bool {
+			return r == '\\' || r == '/'
+		})
+		if len(parts) > 0 {
+			candidates = append(candidates, parts[len(parts)-1])
+		}
+	}
+	for _, candidate := range candidates {
+		if match, ok := codexProcessLauncherNames[strings.ToLower(strings.TrimSpace(candidate))]; ok {
+			return match, true
+		}
+	}
+	return codexProcessLauncherMatch{}, false
+}
+
+func formatCodexProcessTree(pid int32, name string, ancestors []codexProcessAncestor) string {
+	parts := []string{formatCodexProcessNode(name, pid)}
+	for _, ancestor := range ancestors {
+		parts = append(parts, formatCodexProcessNode(ancestor.name, ancestor.pid))
+	}
+	return strings.Join(parts, " <- ")
+}
+
+func formatCodexProcessNode(name string, pid int32) string {
+	if name == "" {
+		name = "unknown"
+	}
+	return fmt.Sprintf("%s(%d)", name, pid)
 }
 
 func enrichCodexProcessFileInfo(info *CodexProcessInfo) {

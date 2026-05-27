@@ -17,7 +17,7 @@ const processRows = ref([])
 const environmentLoading = ref(false)
 const processLoading = ref(false)
 const injectingPID = ref(null)
-const processDetailPopoverLabels = new Set(['命令行', '程序路径', '父进程命令行'])
+const processDetailPopoverLabels = new Set(['命令行', '程序路径', '父进程命令行', '启动来源路径', '启动来源命令行', '进程链'])
 let offCodexAuthUpdated = null
 
 onMounted(async () => {
@@ -109,6 +109,21 @@ function formatNumber(value) {
   return value
 }
 
+function displayLauncher(row) {
+  return row?.launcherName || '未知'
+}
+
+function displayLauncherPID(row) {
+  return row?.launcherPid > 0 ? row.launcherPid : ''
+}
+
+function formatLauncherConfidence(value) {
+  if (value === 'high') return '高'
+  if (value === 'medium') return '中'
+  if (value === 'low') return '低'
+  return '-'
+}
+
 function processDetailFields(row) {
   return [
     ['PID', row.pid],
@@ -121,6 +136,12 @@ function processDetailFields(row) {
     ['父进程 ID', row.parentPid],
     ['父进程名称', row.parentName],
     ['父进程命令行', row.parentCommandLine],
+    ['启动来源', displayLauncher(row)],
+    ['启动来源 PID', displayLauncherPID(row)],
+    ['启动来源路径', row.launcherPath],
+    ['启动来源命令行', row.launcherCommandLine],
+    ['识别置信度', formatLauncherConfidence(row.launcherConfidence)],
+    ['进程链', row.processTree],
     ['子进程', row.childProcesses],
     ['线程数', row.threadCount],
     ['句柄数', row.handleCount],
@@ -312,6 +333,11 @@ async function copyText(value, label) {
             <span>{{ displayValue(row.name) }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="启动来源" width="130" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ displayLauncher(row) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="程序路径" min-width="260" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ displayValue(row.executablePath) }}</span>
@@ -343,12 +369,12 @@ async function copyText(value, label) {
                   <div class="detail-title">进程详情</div>
                   <div class="detail-grid process-detail-grid">
                     <template v-for="field in processDetailFields(row)" :key="field[0]">
-                      <span>{{ field[0] }}</span>
-                      <ValuePopover
-                        v-if="isProcessDetailPopoverField(field[0])"
-                        :label="field[0]"
-                        :value="displayValue(formatNumber(field[1]))"
-                      />
+                      <span :class="{ 'popover-field-label': isProcessDetailPopoverField(field[0]) }">{{ field[0] }}</span>
+                      <div v-if="isProcessDetailPopoverField(field[0])" class="token-value">
+                        <ValuePopover :label="field[0]" :value="displayValue(formatNumber(field[1]))" />
+                        <el-button class="icon-action copy" size="small" text :icon="CopyDocument" :title="`复制${field[0]}`"
+                          @click="copyText(field[1], field[0])" />
+                      </div>
                       <strong v-else>{{ displayValue(formatNumber(field[1])) }}</strong>
                     </template>
                   </div>
@@ -605,6 +631,10 @@ async function copyText(value, label) {
 
 .process-detail-grid {
   grid-template-columns: 100px minmax(0, 1fr);
+}
+
+.popover-field-label {
+  align-self: center;
 }
 
 .token-value code {

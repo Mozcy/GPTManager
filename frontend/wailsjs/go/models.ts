@@ -140,6 +140,12 @@ export namespace main {
 	    parentPid: number;
 	    parentName: string;
 	    parentCommandLine: string;
+	    launcherName: string;
+	    launcherPid: number;
+	    launcherPath: string;
+	    launcherCommandLine: string;
+	    launcherConfidence: string;
+	    processTree: string;
 	    childProcesses: string;
 	    status: string;
 	    threadCount: number;
@@ -185,6 +191,12 @@ export namespace main {
 	        this.parentPid = source["parentPid"];
 	        this.parentName = source["parentName"];
 	        this.parentCommandLine = source["parentCommandLine"];
+	        this.launcherName = source["launcherName"];
+	        this.launcherPid = source["launcherPid"];
+	        this.launcherPath = source["launcherPath"];
+	        this.launcherCommandLine = source["launcherCommandLine"];
+	        this.launcherConfidence = source["launcherConfidence"];
+	        this.processTree = source["processTree"];
 	        this.childProcesses = source["childProcesses"];
 	        this.status = source["status"];
 	        this.threadCount = source["threadCount"];
