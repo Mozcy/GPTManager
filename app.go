@@ -13,22 +13,25 @@ import (
 
 // App 保存应用运行时上下文。
 type App struct {
-	ctx          context.Context
-	proxyStore   *ProxyStore
-	proxyManager *ProxyManager
-	proxyInitErr error
-	authMu       sync.Mutex
-	authRunning  bool
-	authCancel   context.CancelFunc
-	authDone     chan struct{}
-	authSession  uint64
-	usageCancel  context.CancelFunc
-	usageWG      sync.WaitGroup
-	usageMu      sync.Mutex
-	usageRunning bool
-	usageLastRun time.Time
-	processMu    sync.RWMutex
-	selectedPIDs map[int32]struct{}
+	ctx              context.Context
+	proxyStore       *ProxyStore
+	proxyManager     *ProxyManager
+	proxyInitErr     error
+	authMu           sync.Mutex
+	authRunning      bool
+	authCancel       context.CancelFunc
+	authDone         chan struct{}
+	authSession      uint64
+	usageCancel      context.CancelFunc
+	usageWG          sync.WaitGroup
+	usageMu          sync.Mutex
+	usageRunning     bool
+	usageLastRun     time.Time
+	processMu        sync.RWMutex
+	selectedPIDs     map[int32]struct{}
+	codexWatchMu     sync.Mutex
+	codexWatchCancel context.CancelFunc
+	codexWatchWG     sync.WaitGroup
 }
 
 // NewApp 创建一个新的应用实例。
@@ -49,12 +52,14 @@ func (a *App) startup(ctx context.Context) {
 		//a.startAccountUsageRefresher()
 	}
 	startSystemTray(a)
+	a.startCodexProcessWatcher()
 	appLogger.Info("Wails 启动回调完成")
 }
 
 // shutdown 在应用退出前调用，用于清理系统托盘图标。
 func (a *App) shutdown(ctx context.Context) {
 	appLogger.Info("应用关闭清理开始")
+	a.stopCodexProcessWatcher()
 	a.stopAccountUsageRefresher()
 	if a.proxyManager != nil {
 		a.proxyManager.Close()
@@ -82,6 +87,7 @@ func (a *App) ShowWindow() {
 // QuitApplication 清理系统托盘并真正退出应用。
 func (a *App) QuitApplication() {
 	appLogger.Info("用户请求退出应用")
+	a.stopCodexProcessWatcher()
 	a.stopAccountUsageRefresher()
 	if a.proxyManager != nil {
 		a.proxyManager.Close()

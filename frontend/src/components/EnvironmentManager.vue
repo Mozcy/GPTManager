@@ -19,10 +19,15 @@ const processLoading = ref(false)
 const injectingPID = ref(null)
 const processDetailPopoverLabels = new Set(['命令行', '程序路径', '父进程命令行', '启动来源路径', '启动来源命令行', '进程链'])
 let offCodexAuthUpdated = null
+let offCodexProcessChanged = null
+let codexProcessRefreshTimer = null
 
 onMounted(async () => {
   offCodexAuthUpdated = EventsOn('codex-auth:updated', (info) => {
     applyCodexAuthInfo(info)
+  })
+  offCodexProcessChanged = EventsOn('codex-process:changed', () => {
+    scheduleCodexProcessRefresh()
   })
   await loadCodexAuthInfo()
   await scanCodexProcesses(false)
@@ -31,6 +36,12 @@ onMounted(async () => {
 onUnmounted(() => {
   offCodexAuthUpdated?.()
   offCodexAuthUpdated = null
+  offCodexProcessChanged?.()
+  offCodexProcessChanged = null
+  if (codexProcessRefreshTimer) {
+    clearTimeout(codexProcessRefreshTimer)
+    codexProcessRefreshTimer = null
+  }
 })
 
 function applyCodexAuthInfo(info) {
@@ -71,6 +82,16 @@ async function scanCodexProcesses(showMessage = true) {
   } finally {
     processLoading.value = false
   }
+}
+
+function scheduleCodexProcessRefresh() {
+  if (codexProcessRefreshTimer) {
+    clearTimeout(codexProcessRefreshTimer)
+  }
+  codexProcessRefreshTimer = setTimeout(async () => {
+    codexProcessRefreshTimer = null
+    await scanCodexProcesses(false)
+  }, 350)
 }
 
 async function handleProcessSelectionChange(selection) {

@@ -46,6 +46,23 @@ func scanCodexProcessesByName(processName string) ([]CodexProcessInfo, error) {
 	return rows, nil
 }
 
+func scanCodexProcessIDsByName(processName string) ([]int32, error) {
+	procs, err := process.Processes()
+	if err != nil {
+		return nil, err
+	}
+
+	pids := make([]int32, 0)
+	for _, p := range procs {
+		name, err := p.Name()
+		if err != nil || !strings.EqualFold(name, processName) {
+			continue
+		}
+		pids = append(pids, p.Pid)
+	}
+	return normalizeProcessIDs(pids), nil
+}
+
 func collectCodexProcessInfo(p *process.Process, name string, procMap map[int32]*process.Process) CodexProcessInfo {
 	info := CodexProcessInfo{
 		ProcessID: p.Pid,
