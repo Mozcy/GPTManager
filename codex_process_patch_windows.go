@@ -72,36 +72,53 @@ func patchCodexProcessMemory(pid int32, record accountRecord) error {
 	}
 	defer closeCodexMemoryHandle(handle)
 
-	module, err := findCodexMemoryModuleBase(uint32(pid), "")
+	module, err := findCodexMemoryModuleBase(uint32(pid), "codex.exe")
 	if err != nil {
 		return err
 	}
 
-	specs := []codexMemoryPatchSpec{
-		{
-			name:       "account_id",
-			baseOffset: 0x0E54AA38,
-			offsets:    []uintptr{0x60, 0x20, 0xC8, 0xC8, 0x118, 0xE8, 0x0},
-			length:     36,
-			value:      accountBytes,
-		},
-		{
-			name:       "access_token",
-			baseOffset: 0x0E501308,
-			offsets:    []uintptr{0x10, 0x8B0, 0xAC, 0xB8, 0x118, 0xB8, 0x0},
-			length:     2,
-			value:      []byte("02"),
-		},
+	profile, ctx, err := resolveCodexMemoryPatchProfile(pid, module.path)
+	if err != nil {
+		return err
 	}
 
-	for _, spec := range specs {
+	for _, spec := range buildCodexMemoryPatchSpecs(profile, accountBytes) {
 		if err := replaceCodexMemory(pid, handle, module.base, spec); err != nil {
 			return err
 		}
 	}
 
-	appLogger.Info("Codex 进程内存替换完成", "pid", pid, "module", module.name, "module_path", module.path, "module_base", fmt.Sprintf("0x%X", module.base))
+	appLogger.Info(
+		"Codex 进程内存替换完成",
+		"pid", pid,
+		"module", module.name,
+		"module_path", module.path,
+		"module_base", fmt.Sprintf("0x%X", module.base),
+		"launcher", ctx.launcherName,
+		"launcher_confidence", ctx.launcherConfidence,
+		"profile", fmt.Sprintf("%s/%s", profile.launcher, profile.version),
+	)
 	return nil
+}
+
+func buildCodexMemoryPatchSpecs(profile codexMemoryPatchProfile, accountBytes []byte) []codexMemoryPatchSpec {
+	specs := make([]codexMemoryPatchSpec, 0, len(profile.fields))
+	for _, field := range profile.fields {
+		spec := codexMemoryPatchSpec{
+			name:       field.name,
+			baseOffset: field.baseOffset,
+			offsets:    field.offsets,
+			length:     field.length,
+		}
+		switch field.name {
+		case "account_id":
+			spec.value = accountBytes
+		case "access_token":
+			spec.value = []byte("02")
+		}
+		specs = append(specs, spec)
+	}
+	return specs
 }
 
 func replaceCodexMemory(pid int32, handle syscall.Handle, moduleBase uintptr, spec codexMemoryPatchSpec) error {
