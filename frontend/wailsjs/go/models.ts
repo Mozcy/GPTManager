@@ -145,6 +145,8 @@ export namespace main {
 	    launcherPath: string;
 	    launcherCommandLine: string;
 	    launcherConfidence: string;
+	    accountId: string;
+	    email: string;
 	    processTree: string;
 	    childProcesses: string;
 	    status: string;
@@ -196,6 +198,8 @@ export namespace main {
 	        this.launcherPath = source["launcherPath"];
 	        this.launcherCommandLine = source["launcherCommandLine"];
 	        this.launcherConfidence = source["launcherConfidence"];
+	        this.accountId = source["accountId"];
+	        this.email = source["email"];
 	        this.processTree = source["processTree"];
 	        this.childProcesses = source["childProcesses"];
 	        this.status = source["status"];

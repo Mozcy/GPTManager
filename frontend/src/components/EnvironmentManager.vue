@@ -149,6 +149,8 @@ function processDetailFields(row) {
   return [
     ['PID', row.pid],
     ['名称', row.name],
+    ['account_id', row.accountId],
+    ['邮箱', row.email],
     ['命令行', row.commandLine],
     ['程序路径', row.executablePath],
     ['所属用户', row.owner],
@@ -349,17 +351,25 @@ async function copyText(value, label) {
       >
         <el-table-column type="selection" width="42" align="center" />
         <el-table-column prop="pid" label="PID" width="90" align="center" />
-        <el-table-column label="名称" width="140" show-overflow-tooltip>
+        <!-- <el-table-column label="名称" width="140" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ displayValue(row.name) }}</span>
           </template>
-        </el-table-column>
-        <el-table-column label="启动来源" width="180" show-overflow-tooltip>
+        </el-table-column> -->
+        <el-table-column label="启动来源" min-width="100" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ displayLauncher(row) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="程序路径" min-width="260" show-overflow-tooltip>
+        <el-table-column label="当前账号" width="320">
+          <template #default="{ row }">
+            <div class="process-account-cell">
+              <span class="process-account-id">{{ displayValue(row.accountId) }}</span>
+              <span class="process-account-email">{{ displayValue(row.email) }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="程序路径" min-width="400" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ displayValue(row.executablePath) }}</span>
           </template>
@@ -483,6 +493,27 @@ async function copyText(value, label) {
 
 .operation-actions :deep(.el-button + .el-button) {
   margin-left: 0;
+}
+
+.process-account-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.process-account-email {
+  color: #b8c8d8;
+  font-size: 11px;
+}
+
+.process-account-id {
+  color: #ffffff;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
 }
 
 .subscription-tag {

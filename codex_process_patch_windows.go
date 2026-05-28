@@ -101,6 +101,44 @@ func patchCodexProcessMemory(pid int32, record accountRecord) error {
 	return nil
 }
 
+func readCodexProcessMemoryAccountID(pid int32) (string, error) {
+	if pid <= 0 {
+		return "", errors.New("Codex 进程 PID 无效")
+	}
+
+	handle, err := openCodexMemoryReadProcess(uint32(pid))
+	if err != nil {
+		return "", err
+	}
+	defer closeCodexMemoryHandle(handle)
+
+	module, err := findCodexMemoryModuleBase(uint32(pid), "codex.exe")
+	if err != nil {
+		return "", err
+	}
+
+	profile, _, err := resolveCodexMemoryPatchProfile(pid, module.path)
+	if err != nil {
+		return "", err
+	}
+
+	field, ok := findCodexMemoryPatchField(profile, "account_id")
+	if !ok {
+		return "", fmt.Errorf("profile %s/%s 缺少 account_id 偏移配置", profile.launcher, profile.version)
+	}
+
+	address, err := resolveCodexPointerChain(handle, module.base+field.baseOffset, field.offsets)
+	if err != nil {
+		return "", fmt.Errorf("account_id 解析指针链失败: %w", err)
+	}
+
+	data, err := readCodexMemory(handle, address, field.length)
+	if err != nil {
+		return "", fmt.Errorf("account_id 读取失败: %w", err)
+	}
+	return strings.TrimSpace(formatCodexMemoryBytes(data)), nil
+}
+
 func buildCodexMemoryPatchSpecs(profile codexMemoryPatchProfile, accountBytes []byte) []codexMemoryPatchSpec {
 	specs := make([]codexMemoryPatchSpec, 0, len(profile.fields))
 	for _, field := range profile.fields {
@@ -119,6 +157,15 @@ func buildCodexMemoryPatchSpecs(profile codexMemoryPatchProfile, accountBytes []
 		specs = append(specs, spec)
 	}
 	return specs
+}
+
+func findCodexMemoryPatchField(profile codexMemoryPatchProfile, name string) (codexMemoryPatchField, bool) {
+	for _, field := range profile.fields {
+		if field.name == name {
+			return field, true
+		}
+	}
+	return codexMemoryPatchField{}, false
 }
 
 func replaceCodexMemory(pid int32, handle syscall.Handle, moduleBase uintptr, spec codexMemoryPatchSpec) error {
@@ -198,6 +245,15 @@ func readCodexPointer(handle syscall.Handle, address uintptr) (uintptr, error) {
 
 func openCodexMemoryProcess(processID uint32) (syscall.Handle, error) {
 	access := uintptr(codexMemoryProcessQueryInformation | codexMemoryProcessVMOperation | codexMemoryProcessVMRead | codexMemoryProcessVMWrite)
+	handle, _, callErr := codexMemoryOpenProcess.Call(access, 0, uintptr(processID))
+	if handle == 0 {
+		return 0, fmt.Errorf("OpenProcess(%d) 失败: %w", processID, codexMemorySyscallError(callErr))
+	}
+	return syscall.Handle(handle), nil
+}
+
+func openCodexMemoryReadProcess(processID uint32) (syscall.Handle, error) {
+	access := uintptr(codexMemoryProcessQueryInformation | codexMemoryProcessVMRead)
 	handle, _, callErr := codexMemoryOpenProcess.Call(access, 0, uintptr(processID))
 	if handle == 0 {
 		return 0, fmt.Errorf("OpenProcess(%d) 失败: %w", processID, codexMemorySyscallError(callErr))

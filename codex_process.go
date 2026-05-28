@@ -22,6 +22,8 @@ type CodexProcessInfo struct {
 	LauncherPath        string   `json:"launcherPath"`
 	LauncherCommandLine string   `json:"launcherCommandLine"`
 	LauncherConfidence  string   `json:"launcherConfidence"`
+	AccountID           string   `json:"accountId"`
+	Email               string   `json:"email"`
 	ProcessTree         string   `json:"processTree"`
 	ChildProcesses      string   `json:"childProcesses"`
 	Status              string   `json:"status"`
@@ -63,8 +65,34 @@ func (a *App) ScanCodexProcesses() ([]CodexProcessInfo, error) {
 		appLogger.Error("扫描 Codex 进程失败", "error", err)
 		return nil, err
 	}
+	a.enrichCodexProcessAccounts(rows)
 	appLogger.Info("扫描 Codex 进程完成", "count", len(rows))
 	return rows, nil
+}
+
+func (a *App) enrichCodexProcessAccounts(rows []CodexProcessInfo) {
+	if a == nil || a.proxyStore == nil {
+		return
+	}
+
+	for i := range rows {
+		accountID, err := readCodexProcessMemoryAccountID(rows[i].ProcessID)
+		if err != nil {
+			appLogger.Warn("读取 Codex 进程 account_id 失败", "pid", rows[i].ProcessID, "error", err)
+			continue
+		}
+		rows[i].AccountID = accountID
+		if accountID == "" {
+			continue
+		}
+
+		account, err := a.proxyStore.GetAccountByAccountID(accountID)
+		if err != nil {
+			appLogger.Warn("未匹配到 Codex 进程账号", "pid", rows[i].ProcessID, "account_id", accountID, "error", err)
+			continue
+		}
+		rows[i].Email = account.Email
+	}
 }
 
 // SetSelectedCodexProcessPIDs 保存当前 Codex Process 表格勾选的 PID 集合。
